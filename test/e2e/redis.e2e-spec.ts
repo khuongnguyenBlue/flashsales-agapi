@@ -10,14 +10,11 @@ describe('RedisService (e2e)', () => {
 
   beforeAll(async () => {
     infra = await startInfra();
+    process.env.REDIS_URL = infra.redisUrl;
 
     const module = await Test.createTestingModule({
       imports: [
-        ConfigModule.forRoot({
-          isGlobal: true,
-          ignoreEnvFile: true,
-          load: [() => ({ REDIS_URL: infra.redisUrl })],
-        }),
+        ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }),
         RedisModule,
       ],
     }).compile();
