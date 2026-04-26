@@ -1,0 +1,80 @@
+// Schema for the FlashSale backend.
+// Source of truth: docs/superpowers/specs/<spec> §10.
+// Phase 3 entities (auth) only — products / flash sales / purchases are added
+// in Phase 4 tasks.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  DISABLED
+}
+
+enum OtpChannel {
+  EMAIL
+  PHONE
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSED
+  DEAD_LETTER
+}
+
+model User {
+  id           String     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  email        String?    @unique
+  phone        String?    @unique
+  passwordHash String     @map("password_hash")
+  status       UserStatus @default(PENDING_VERIFICATION)
+  balanceCents BigInt     @default(0) @map("balance_cents")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  otpCodes OtpCode[]
+
+  @@map("users")
+}
+
+model OtpCode {
+  id         String     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  userId     String     @db.Uuid @map("user_id")
+  channel    OtpChannel
+  hashedCode String     @map("hashed_code")
+  expiresAt  DateTime   @map("expires_at")
+  used       Boolean    @default(false)
+  sent       Boolean    @default(false)
+  attempts   Int        @default(0)
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, channel, used, expiresAt], name: "idx_otp_lookup")
+  @@map("otp_codes")
+}
+
+model Outbox {
+  id             BigInt       @id @default(autoincrement())
+  type           String
+  payload        Json
+  status         OutboxStatus @default(PENDING)
+  attempts       Int          @default(0)
+  visibleAt      DateTime     @default(now()) @map("visible_at")
+  lastError      String?      @map("last_error")
+  idempotencyKey String?      @db.Uuid @map("idempotency_key")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  processedAt    DateTime?    @map("processed_at")
+
+  // Note: Prisma's @@index doesn't emit a partial WHERE clause for Postgres;
+  // the partial index `idx_outbox_poll` is added in the manual migration step.
+  @@index([idempotencyKey], name: "idx_outbox_idempotency")
+  @@map("outbox")
+}

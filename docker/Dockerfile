@@ -6,12 +6,12 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# --- Stage 2: compile TypeScript
-# (Prisma client generation is added in Task 3 once prisma/schema.prisma exists.)
+# --- Stage 2: generate Prisma client + compile TypeScript
 FROM node:20-bookworm-slim AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN npx prisma generate
 RUN npm run build
 
 # --- Stage 3: lean runtime image with prod deps + compiled output
@@ -24,6 +24,9 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=build /app/prisma ./prisma
 EXPOSE 3000
 # Default command — overridden per service in docker-compose.yml
 CMD ["node", "dist/main.api.js"]
