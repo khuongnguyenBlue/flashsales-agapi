@@ -92,6 +92,8 @@ export class OutboxPoller implements OnApplicationBootstrap, OnApplicationShutdo
     try {
       if (handler) {
         await handler(row.payload, row.idempotency_key);
+      } else {
+        this.logger.warn(`No handler for outbox type '${row.type}' (id=${row.id}) — marking PROCESSED`);
       }
       await client.outbox.update({ where: { id }, data: { status: 'PROCESSED' } });
     } catch (err) {

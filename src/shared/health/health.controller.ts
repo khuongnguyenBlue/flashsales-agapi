@@ -1,4 +1,5 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, HttpStatus } from '@nestjs/common';
+import { AppHttpException } from '../http/app-http.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -22,10 +23,12 @@ export class HealthController {
     ]);
 
     if (!pgOk || !redisOk) {
-      throw new ServiceUnavailableException({
-        status: 'degraded',
-        checks: { postgres: pgOk ? 'ok' : 'fail', redis: redisOk ? 'ok' : 'fail' },
-      });
+      throw new AppHttpException(
+        'service_unavailable',
+        'Service degraded',
+        HttpStatus.SERVICE_UNAVAILABLE,
+        { checks: { postgres: pgOk ? 'ok' : 'fail', redis: redisOk ? 'ok' : 'fail' } },
+      );
     }
 
     return { status: 'ready', checks: { postgres: 'ok', redis: 'ok' } };
