@@ -1,11 +1,7 @@
 import { parsePhoneNumber, isValidPhoneNumber } from 'libphonenumber-js';
+import { NormalizedIdentifier } from '../../shared/types/identifier.types';
 
-export type IdentifierKind = 'EMAIL' | 'PHONE';
-
-export interface NormalizedIdentifier {
-  kind: IdentifierKind;
-  normalized: string;
-}
+export type { IdentifierKind, NormalizedIdentifier } from '../../shared/types/identifier.types';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -24,5 +20,5 @@ export function normalizeIdentifier(
     return { kind: 'PHONE', normalized: parsed.format('E.164') };
   }
 
-  throw new Error(`Invalid identifier: "${trimmed}"`);
+  throw new Error('Invalid identifier');
 }

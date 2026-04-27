@@ -14,7 +14,6 @@ describe('UsersService (e2e)', () => {
   beforeAll(async () => {
     infra = await startInfra();
     process.env.DATABASE_URL = infra.databaseUrl;
-    process.env.REDIS_URL = infra.redisUrl;
 
     const module = await Test.createTestingModule({
       imports: [
@@ -53,6 +52,22 @@ describe('UsersService (e2e)', () => {
     expect(found).not.toBeNull();
     expect(found!.email).toBe('alice@test.com');
     expect(found!.status).toBe('PENDING_VERIFICATION');
+  });
+
+  it('create with phone → findByIdentifier by phone returns the user', async () => {
+    await prisma.$transaction(async (client) => {
+      await users.create(client, {
+        phone: '+84912345678',
+        passwordHash: 'hashed',
+      });
+    });
+
+    const found = await users.findByIdentifier({
+      kind: 'PHONE',
+      normalized: '+84912345678',
+    });
+    expect(found).not.toBeNull();
+    expect(found!.phone).toBe('+84912345678');
   });
 
   it('create with neither email nor phone → DB CHECK rejects', async () => {

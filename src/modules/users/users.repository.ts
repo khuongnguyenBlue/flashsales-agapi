@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
 import { PrismaService } from '../../shared/prisma/prisma.service';
-import { NormalizedIdentifier } from '../auth/identifier.util';
+import { NormalizedIdentifier } from '../../shared/types/identifier.types';
 
 export interface CreateUserInput {
   email?: string;

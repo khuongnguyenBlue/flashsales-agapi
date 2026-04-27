@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
-import { NormalizedIdentifier } from '../auth/identifier.util';
+import { NormalizedIdentifier } from '../../shared/types/identifier.types';
 import { CreateUserInput, UsersRepository } from './users.repository';
 
 @Injectable()
