@@ -9,3 +9,4 @@ coverage/
 load/results/*
 !load/results/.gitkeep
 docs/
+.vscode/
