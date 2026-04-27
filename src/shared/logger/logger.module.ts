@@ -6,6 +6,8 @@ import { LoggerModule } from 'nestjs-pino';
   imports: [
     LoggerModule.forRoot({
       pinoHttp: {
+        // Mirror the request ID set by RequestIdMiddleware so log lines correlate with the response header.
+        genReqId: (req) => req.headers['x-request-id'] as string,
         redact: [
           'req.headers.authorization',
           'req.body.password',
