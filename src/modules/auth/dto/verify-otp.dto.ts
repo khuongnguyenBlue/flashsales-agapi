@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, Length } from 'class-validator';
+import { IsNotEmpty, IsString, Matches } from 'class-validator';
 
 export class VerifyOtpDto {
   @IsString()
@@ -6,6 +6,6 @@ export class VerifyOtpDto {
   identifier!: string;
 
   @IsString()
-  @Length(6, 6)
+  @Matches(/^\d{6}$/, { message: 'code must be a 6-digit number' })
   code!: string;
 }

@@ -24,7 +24,7 @@ export class TokenService {
     const refreshToken = `${jti}.${rawPart}`;
     const hash = crypto.createHash('sha256').update(rawPart).digest('hex');
 
-    await this.redis.client.set(`refresh:${jti}`, hash, 'EX', this.refreshTtl);
+    await this.redis.client.set(`refresh:${jti}`, JSON.stringify({ userId, hash }), 'EX', this.refreshTtl);
 
     return { accessToken, refreshToken };
   }

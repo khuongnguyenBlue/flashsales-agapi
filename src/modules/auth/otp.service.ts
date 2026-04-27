@@ -5,6 +5,8 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 
+const MAX_OTP_ATTEMPTS = 5;
+
 @Injectable()
 export class OtpService {
   private readonly bcryptCost: number;
@@ -37,7 +39,7 @@ export class OtpService {
 
   findValid(userId: string): Promise<OtpCode | null> {
     return this.prisma.otpCode.findFirst({
-      where: { userId, used: false, expiresAt: { gt: new Date() } },
+      where: { userId, used: false, expiresAt: { gt: new Date() }, attempts: { lt: MAX_OTP_ATTEMPTS } },
       orderBy: { createdAt: 'desc' },
     });
   }

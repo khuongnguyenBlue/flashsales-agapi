@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { OtpChannel } from '@prisma/client';
+import { OtpChannel, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { AppHttpException } from '../../shared/http/app-http.exception';
 import { OutboxService } from '../../shared/outbox/outbox.service';
@@ -39,7 +39,7 @@ export class AuthService {
       );
     }
 
-    const [passwordHash, { hashedCode, expiresAt }] = await Promise.all([
+    const [passwordHash, { plainCode, hashedCode, expiresAt }] = await Promise.all([
       bcrypt.hash(dto.password, this.bcryptCost),
       this.otp.prepare(),
     ]);
@@ -47,12 +47,20 @@ export class AuthService {
     const channel: OtpChannel = identifier.kind === 'EMAIL' ? 'EMAIL' : 'PHONE';
 
     const userId = await this.tx.run(async (client) => {
-      const user = await this.users.create(client, {
-        ...(identifier.kind === 'EMAIL'
-          ? { email: identifier.normalized }
-          : { phone: identifier.normalized }),
-        passwordHash,
-      });
+      let user;
+      try {
+        user = await this.users.create(client, {
+          ...(identifier.kind === 'EMAIL'
+            ? { email: identifier.normalized }
+            : { phone: identifier.normalized }),
+          passwordHash,
+        });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          throw new AppHttpException('identifier_taken', 'Identifier already registered', HttpStatus.CONFLICT);
+        }
+        throw err;
+      }
 
       const otpRecord = await this.otp.create(client, user.id, channel, hashedCode, expiresAt);
 
@@ -63,6 +71,7 @@ export class AuthService {
           otp_id: otpRecord.id,
           channel,
           identifier: identifier.normalized,
+          plain_code: plainCode,
         },
         idempotencyKey: otpRecord.id,
       });
