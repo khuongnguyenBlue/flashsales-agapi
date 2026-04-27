@@ -67,7 +67,7 @@ model Outbox {
   payload        Json
   status         OutboxStatus @default(PENDING)
   attempts       Int          @default(0)
-  visibleAt      DateTime     @default(now()) @map("visible_at")
+  visibleAt      DateTime     @default(dbgenerated("CURRENT_TIMESTAMP")) @map("visible_at")
   lastError      String?      @map("last_error")
   idempotencyKey String?      @db.Uuid @map("idempotency_key")
   createdAt      DateTime     @default(now()) @map("created_at")
