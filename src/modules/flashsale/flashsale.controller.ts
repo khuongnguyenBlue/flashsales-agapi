@@ -13,6 +13,7 @@ import {
 import { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt.strategy';
+import { Public } from '../../shared/http/public.decorator';
 import { RateLimit } from '../../shared/http/rate-limit.guard';
 import { IdempotencyInterceptor } from '../../shared/http/idempotency.interceptor';
 import { FlashSaleService } from './flashsale.service';
@@ -24,6 +25,7 @@ export class FlashSaleController {
   constructor(private readonly service: FlashSaleService) {}
 
   @Get('active')
+  @Public()
   listActive(@Query() query: ListActiveQueryDto) {
     const at = query.at ? new Date(query.at) : new Date();
     return this.service.listActive(at).then((items) => ({ items }));

@@ -4,6 +4,7 @@ import { AppConfigModule } from './shared/config/config.module';
 import { HealthModule } from './shared/health/health.module';
 import { HttpSharedModule } from './shared/http/http-shared.module';
 import { RateLimitGuard } from './shared/http/rate-limit.guard';
+import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { RequestIdMiddleware } from './shared/http/request-id.middleware';
 import { AppLoggerModule } from './shared/logger/logger.module';
 import { OutboxModule } from './shared/outbox/outbox.module';
@@ -26,7 +27,10 @@ import { FlashSaleModule } from './modules/flashsale/flashsale.module';
     AuthModule,
     FlashSaleModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RateLimitGuard },
+  ],
 })
 export class ApiModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

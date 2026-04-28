@@ -57,23 +57,8 @@ export class RateLimitGuard implements CanActivate {
     }
 
     if (config.key === 'user_id') {
-      // APP_GUARD runs before JwtAuthGuard so req.user is not populated yet.
-      // Decode the JWT payload (no signature verification — auth still happens in
-      // JwtAuthGuard) to extract the subject for per-user bucketing.
-      const auth = req.headers.authorization;
-      if (auth?.startsWith('Bearer ')) {
-        try {
-          const payloadB64 = auth.slice(7).split('.')[1];
-          const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as {
-            sub?: string;
-          };
-          if (payload.sub) return payload.sub;
-        } catch {
-          // malformed token — fall through to 'unauthenticated'
-        }
-      }
-      // No valid token: collapse into a shared bucket; JwtAuthGuard issues the 401.
-      return 'unauthenticated';
+      const user = (req as FastifyRequest & { user?: { id: string } }).user;
+      return user?.id ?? 'unauthenticated';
     }
 
     const body = req.body as Record<string, unknown> | undefined;
