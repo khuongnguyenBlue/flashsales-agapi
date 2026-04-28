@@ -20,6 +20,8 @@ export const envSchema = z.object({
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(200),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().positive().default(50),
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
+
+  CORS_ORIGINS: z.string().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;
