@@ -28,4 +28,34 @@ export class TokenService {
 
     return { accessToken, refreshToken };
   }
+
+  async rotate(token: string): Promise<{ accessToken: string; refreshToken: string } | null> {
+    const result = await this.parseAndVerify(token);
+    if (!result) return null;
+
+    await this.redis.client.del(`refresh:${result.jti}`);
+    return this.issuePair(result.userId);
+  }
+
+  async revoke(token: string): Promise<void> {
+    const dotIndex = token.indexOf('.');
+    if (dotIndex === -1) return;
+    await this.redis.client.del(`refresh:${token.slice(0, dotIndex)}`);
+  }
+
+  private async parseAndVerify(token: string): Promise<{ userId: string; jti: string } | null> {
+    const dotIndex = token.indexOf('.');
+    if (dotIndex === -1) return null;
+
+    const jti = token.slice(0, dotIndex);
+    const rawPart = token.slice(dotIndex + 1);
+
+    const stored = await this.redis.client.get(`refresh:${jti}`);
+    if (!stored) return null;
+
+    const { userId, hash } = JSON.parse(stored) as { userId: string; hash: string };
+    const candidate = crypto.createHash('sha256').update(rawPart).digest('hex');
+
+    return candidate === hash ? { userId, jti } : null;
+  }
 }
