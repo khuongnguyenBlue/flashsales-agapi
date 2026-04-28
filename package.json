@@ -47,6 +47,9 @@
     "ulid": "^2.3.0",
     "zod": "^3.23.8"
   },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "devDependencies": {
     "@nestjs/cli": "^10.4.0",
     "@nestjs/schematics": "^10.2.0",
