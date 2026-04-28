@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OtpChannel, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
@@ -6,15 +6,18 @@ import { AppHttpException } from '../../shared/http/app-http.exception';
 import { OutboxService } from '../../shared/outbox/outbox.service';
 import { TransactionService } from '../../shared/transaction/transaction.service';
 import { UsersService } from '../users/users.service';
+import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResendOtpDto } from './dto/resend-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { normalizeIdentifier } from './identifier.util';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   private readonly bcryptCost: number;
+  private dummyHash!: string;
 
   constructor(
     private readonly users: UsersService,
@@ -25,6 +28,10 @@ export class AuthService {
     config: ConfigService,
   ) {
     this.bcryptCost = Number(config.getOrThrow('BCRYPT_COST'));
+  }
+
+  async onModuleInit(): Promise<void> {
+    this.dummyHash = await bcrypt.hash('__dummy__', this.bcryptCost);
   }
 
   async register(dto: RegisterDto): Promise<{ userId: string }> {
@@ -71,6 +78,7 @@ export class AuthService {
           otp_id: otpRecord.id,
           channel,
           identifier: identifier.normalized,
+          // plain_code is bearer-credential material — handler must never log it
           plain_code: plainCode,
         },
         idempotencyKey: otpRecord.id,
@@ -80,6 +88,24 @@ export class AuthService {
     });
 
     return { userId };
+  }
+
+  async login(dto: LoginDto): Promise<{ accessToken: string; refreshToken: string }> {
+    const identifier = normalizeIdentifier(dto.identifier);
+    const user = await this.users.findByIdentifier(identifier);
+
+    // Always run bcrypt even when user not found — prevents timing-based enumeration
+    const passwordMatch = await bcrypt.compare(dto.password, user?.passwordHash ?? this.dummyHash);
+
+    if (!passwordMatch || !user) {
+      throw new AppHttpException('invalid_credentials', 'Invalid credentials', HttpStatus.UNAUTHORIZED);
+    }
+
+    if (user.status === 'PENDING_VERIFICATION') {
+      throw new AppHttpException('account_not_verified', 'Account not verified', HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+
+    return this.token.issuePair(user.id);
   }
 
   async verifyOtp(dto: VerifyOtpDto): Promise<{ accessToken: string; refreshToken: string }> {
@@ -107,5 +133,46 @@ export class AuthService {
     });
 
     return this.token.issuePair(user.id);
+  }
+
+  async refresh(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+    const tokens = await this.token.rotate(refreshToken);
+    if (!tokens) {
+      throw new AppHttpException('invalid_token', 'Invalid or expired refresh token', HttpStatus.UNAUTHORIZED);
+    }
+    return tokens;
+  }
+
+  async logout(refreshToken: string): Promise<void> {
+    await this.token.revoke(refreshToken);
+  }
+
+  async resendOtp(dto: ResendOtpDto): Promise<void> {
+    const identifier = normalizeIdentifier(dto.identifier);
+    const user = await this.users.findByIdentifier(identifier);
+
+    if (!user || user.status !== 'PENDING_VERIFICATION') {
+      return;
+    }
+
+    const channel: OtpChannel = identifier.kind === 'EMAIL' ? 'EMAIL' : 'PHONE';
+    const { plainCode, hashedCode, expiresAt } = await this.otp.prepare();
+
+    await this.tx.run(async (client) => {
+      const otpRecord = await this.otp.create(client, user.id, channel, hashedCode, expiresAt);
+
+      await this.outbox.append(client, {
+        type: 'otp.send',
+        payload: {
+          user_id: user.id,
+          otp_id: otpRecord.id,
+          channel,
+          identifier: identifier.normalized,
+          // plain_code is bearer-credential material — handler must never log it
+          plain_code: plainCode,
+        },
+        idempotencyKey: otpRecord.id,
+      });
+    });
   }
 }
