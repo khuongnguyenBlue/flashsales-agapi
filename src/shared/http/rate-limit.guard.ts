@@ -7,7 +7,7 @@ import { normalizeIdentifier } from '../../modules/auth/identifier.util';
 
 export interface RateLimitConfig {
   prefix: string;
-  key: 'ip' | 'identifier';
+  key: 'ip' | 'identifier' | 'user_id';
   capacity: number;
   refillPerSec: number;
 }
@@ -54,6 +54,11 @@ export class RateLimitGuard implements CanActivate {
       // 'unknown' collapses all unresolvable clients into one bucket — acceptable for
       // MVP but flag if seen in staging logs (likely a misconfigured proxy).
       return req.ip ?? 'unknown';
+    }
+
+    if (config.key === 'user_id') {
+      const user = (req as FastifyRequest & { user?: { id: string } }).user;
+      return user?.id ?? 'unauthenticated';
     }
 
     const body = req.body as Record<string, unknown> | undefined;

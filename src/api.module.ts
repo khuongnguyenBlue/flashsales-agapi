@@ -11,6 +11,7 @@ import { PrismaModule } from './shared/prisma/prisma.module';
 import { RedisModule } from './shared/redis/redis.module';
 import { TransactionModule } from './shared/transaction/transaction.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { FlashSaleModule } from './modules/flashsale/flashsale.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AuthModule } from './modules/auth/auth.module';
     HttpSharedModule,
     HealthModule,
     AuthModule,
+    FlashSaleModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })
