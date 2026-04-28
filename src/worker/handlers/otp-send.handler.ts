@@ -31,6 +31,7 @@ export class OtpSendHandler implements OnModuleInit {
     }
 
     if (otp.sent) {
+      this.logger.debug({ otp_id }, 'OTP already sent — idempotent skip');
       return;
     }
 

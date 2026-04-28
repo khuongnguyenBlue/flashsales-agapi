@@ -26,7 +26,7 @@ end
 
 tokens = tokens - 1
 local ttl_sec = math.ceil(capacity / refill_per_sec) + 1
-redis.call('HMSET', key, 'tokens', tostring(tokens), 'ts', tostring(now_ms))
+redis.call('HSET', key, 'tokens', tostring(tokens), 'ts', tostring(now_ms))
 redis.call('EXPIRE', key, ttl_sec)
 return {1, 0}
 `;

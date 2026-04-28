@@ -33,6 +33,9 @@ export class RateLimitGuard implements CanActivate {
       const redisKey = `rl:${config.prefix}:${config.key}:${keyValue}`;
       const result = await this.limiter.allow(redisKey, config.capacity, config.refillPerSec);
 
+      // Tokens are consumed in declaration order. For login (IP + identifier), the IP
+      // token is spent even if the identifier bucket subsequently 429s. This is
+      // intentional — it makes identifier enumeration harder via IP cycling.
       if (!result.allowed) {
         throw new AppHttpException(
           'rate_limited',
@@ -48,6 +51,8 @@ export class RateLimitGuard implements CanActivate {
 
   private extractKeyValue(config: RateLimitConfig, req: FastifyRequest): string {
     if (config.key === 'ip') {
+      // 'unknown' collapses all unresolvable clients into one bucket — acceptable for
+      // MVP but flag if seen in staging logs (likely a misconfigured proxy).
       return req.ip ?? 'unknown';
     }
 

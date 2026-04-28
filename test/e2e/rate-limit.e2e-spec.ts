@@ -65,6 +65,6 @@ describe('RateLimitGuard (e2e)', () => {
     const r3 = await app.inject({ method: 'POST', url: '/test/limited' });
     expect(r3.statusCode).toBe(429);
     expect(r3.json().error.code).toBe('rate_limited');
-    expect(typeof r3.json().error.details.retry_after_seconds).toBe('number');
+    expect(r3.json().error.details.retry_after_seconds).toBeGreaterThan(0);
   });
 });
