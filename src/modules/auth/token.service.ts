@@ -38,9 +38,9 @@ export class TokenService {
   }
 
   async revoke(token: string): Promise<void> {
-    const dotIndex = token.indexOf('.');
-    if (dotIndex === -1) return;
-    await this.redis.client.del(`refresh:${token.slice(0, dotIndex)}`);
+    const result = await this.parseAndVerify(token);
+    if (!result) return;
+    await this.redis.client.del(`refresh:${result.jti}`);
   }
 
   private async parseAndVerify(token: string): Promise<{ userId: string; jti: string } | null> {
@@ -54,8 +54,10 @@ export class TokenService {
     if (!stored) return null;
 
     const { userId, hash } = JSON.parse(stored) as { userId: string; hash: string };
-    const candidate = crypto.createHash('sha256').update(rawPart).digest('hex');
+    const candidateBuf = Buffer.from(crypto.createHash('sha256').update(rawPart).digest('hex'), 'hex');
+    const storedBuf = Buffer.from(hash, 'hex');
 
-    return candidate === hash ? { userId, jti } : null;
+    if (candidateBuf.length !== storedBuf.length) return null;
+    return crypto.timingSafeEqual(candidateBuf, storedBuf) ? { userId, jti } : null;
   }
 }
