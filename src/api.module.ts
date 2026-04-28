@@ -1,6 +1,9 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppConfigModule } from './shared/config/config.module';
 import { HealthModule } from './shared/health/health.module';
+import { HttpSharedModule } from './shared/http/http-shared.module';
+import { RateLimitGuard } from './shared/http/rate-limit.guard';
 import { RequestIdMiddleware } from './shared/http/request-id.middleware';
 import { AppLoggerModule } from './shared/logger/logger.module';
 import { OutboxModule } from './shared/outbox/outbox.module';
@@ -17,9 +20,11 @@ import { AuthModule } from './modules/auth/auth.module';
     RedisModule,
     TransactionModule,
     OutboxModule,
+    HttpSharedModule,
     HealthModule,
     AuthModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })
 export class ApiModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
