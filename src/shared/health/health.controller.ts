@@ -1,4 +1,5 @@
 import { Controller, Get, HttpStatus } from '@nestjs/common';
+import { Public } from '../http/public.decorator';
 import { AppHttpException } from '../http/app-http.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -11,11 +12,13 @@ export class HealthController {
   ) {}
 
   @Get('healthz')
+  @Public()
   liveness() {
     return { status: 'ok' };
   }
 
   @Get('readyz')
+  @Public()
   async readiness() {
     const [pgOk, redisOk] = await Promise.all([
       this.prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),

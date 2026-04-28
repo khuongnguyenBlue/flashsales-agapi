@@ -1,7 +1,5 @@
 // Schema for the FlashSale backend.
 // Source of truth: docs/superpowers/specs/<spec> §10.
-// Phase 3 entities (auth) only — products / flash sales / purchases are added
-// in Phase 4 tasks.
 
 generator client {
   provider = "prisma-client-js"
@@ -39,7 +37,8 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  otpCodes OtpCode[]
+  otpCodes  OtpCode[]
+  purchases Purchase[]
 
   @@map("users")
 }
@@ -59,6 +58,70 @@ model OtpCode {
 
   @@index([userId, channel, used, expiresAt], name: "idx_otp_lookup")
   @@map("otp_codes")
+}
+
+model Product {
+  id          String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  sku         String   @unique @db.VarChar(255)
+  name        String   @db.VarChar(255)
+  description String?
+  stock       BigInt
+  priceCents  BigInt   @map("price_cents")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  flashSaleItems FlashSaleItem[]
+
+  @@map("products")
+}
+
+model FlashSale {
+  id        String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name      String   @db.VarChar(255)
+  startsAt  DateTime @map("starts_at")
+  endsAt    DateTime @map("ends_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  items FlashSaleItem[]
+
+  @@index([startsAt, endsAt], name: "idx_flash_sales_window")
+  @@map("flash_sales")
+}
+
+model FlashSaleItem {
+  id          String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  flashSaleId String   @db.Uuid @map("flash_sale_id")
+  productId   String   @db.Uuid @map("product_id")
+  quantity    Int
+  sold        Int      @default(0)
+  priceCents  BigInt   @map("price_cents")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  flashSale FlashSale  @relation(fields: [flashSaleId], references: [id], onDelete: Cascade)
+  product   Product    @relation(fields: [productId], references: [id])
+  purchases Purchase[]
+
+  @@unique([flashSaleId, productId])
+  @@index([flashSaleId], name: "idx_flash_sale_items_sale")
+  @@map("flash_sale_items")
+}
+
+model Purchase {
+  id              String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  userId          String   @db.Uuid @map("user_id")
+  flashSaleItemId String   @db.Uuid @map("flash_sale_item_id")
+  day             DateTime @db.Date
+  priceCents      BigInt   @map("price_cents")
+  idempotencyKey  String   @unique @db.Uuid @map("idempotency_key")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user          User          @relation(fields: [userId], references: [id])
+  flashSaleItem FlashSaleItem @relation(fields: [flashSaleItemId], references: [id])
+
+  @@unique([userId, day])
+  @@map("purchases")
 }
 
 model Outbox {
