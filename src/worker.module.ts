@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { AppConfigModule } from './shared/config/config.module';
 import { AppLoggerModule } from './shared/logger/logger.module';
 import { PrismaModule } from './shared/prisma/prisma.module';
+import { OtpSendHandler } from './worker/handlers/otp-send.handler';
 import { HandlerRegistry } from './worker/handler-registry';
 import { OutboxPoller } from './worker/outbox-poller';
 
 @Module({
   imports: [AppConfigModule, AppLoggerModule, PrismaModule],
-  providers: [HandlerRegistry, OutboxPoller],
+  providers: [HandlerRegistry, OutboxPoller, OtpSendHandler],
 })
 export class WorkerModule {}

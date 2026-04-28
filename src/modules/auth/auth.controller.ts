@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { RateLimit } from '../../shared/http/rate-limit.guard';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { LogoutDto } from './dto/logout.dto';
@@ -14,18 +15,24 @@ export class AuthController {
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
+  @RateLimit({ prefix: 'register', key: 'ip', capacity: 5, refillPerSec: 5 / 600 })
   register(@Body() dto: RegisterDto): Promise<{ userId: string }> {
     return this.auth.register(dto);
   }
 
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
+  @RateLimit({ prefix: 'verify-otp', key: 'identifier', capacity: 5, refillPerSec: 5 / 300 })
   verifyOtp(@Body() dto: VerifyOtpDto): Promise<{ accessToken: string; refreshToken: string }> {
     return this.auth.verifyOtp(dto);
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @RateLimit(
+    { prefix: 'login', key: 'ip', capacity: 10, refillPerSec: 10 / 60 },
+    { prefix: 'login', key: 'identifier', capacity: 5, refillPerSec: 5 / 60 },
+  )
   login(@Body() dto: LoginDto): Promise<{ accessToken: string; refreshToken: string }> {
     return this.auth.login(dto);
   }
@@ -45,6 +52,7 @@ export class AuthController {
 
   @Post('resend-otp')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RateLimit({ prefix: 'resend-otp', key: 'identifier', capacity: 3, refillPerSec: 3 / 600 })
   resendOtp(@Body() dto: ResendOtpDto): Promise<void> {
     return this.auth.resendOtp(dto);
   }
