@@ -7,6 +7,7 @@ import { OutboxModule } from './shared/outbox/outbox.module';
 import { PrismaModule } from './shared/prisma/prisma.module';
 import { RedisModule } from './shared/redis/redis.module';
 import { TransactionModule } from './shared/transaction/transaction.module';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { TransactionModule } from './shared/transaction/transaction.module';
     TransactionModule,
     OutboxModule,
     HealthModule,
+    AuthModule,
   ],
 })
 export class ApiModule implements NestModule {
