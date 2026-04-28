@@ -15,17 +15,13 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { JwtPayload } from '../auth/jwt.strategy';
 import { RateLimit } from '../../shared/http/rate-limit.guard';
 import { IdempotencyInterceptor } from '../../shared/http/idempotency.interceptor';
-import { FlashSaleRepository } from './flashsale.repository';
 import { FlashSaleService } from './flashsale.service';
 import { ListActiveQueryDto } from './dto/list-active-query.dto';
 import { PurchaseDto } from './dto/purchase.dto';
 
 @Controller('v1/flashsale')
 export class FlashSaleController {
-  constructor(
-    private readonly service: FlashSaleService,
-    private readonly repo: FlashSaleRepository,
-  ) {}
+  constructor(private readonly service: FlashSaleService) {}
 
   @Get('active')
   listActive(@Query() query: ListActiveQueryDto) {
@@ -43,7 +39,7 @@ export class FlashSaleController {
     @Request() req: FastifyRequest & { user: JwtPayload },
   ) {
     const idempotencyKey = req.headers['idempotency-key'] as string;
-    const result = await this.repo.purchaseTx(req.user.id, dto.sale_item_id, idempotencyKey);
+    const result = await this.service.purchase(req.user.id, dto.sale_item_id, idempotencyKey);
     return {
       purchase_id: result.purchaseId,
       sale_item_id: result.saleItemId,

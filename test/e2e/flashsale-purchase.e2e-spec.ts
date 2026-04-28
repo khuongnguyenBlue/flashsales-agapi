@@ -264,4 +264,38 @@ describe('POST /v1/flashsale/purchase (e2e)', () => {
     expect(r2.statusCode).toBe(409);
     expect(r2.json().error.code).toBe('already_purchased_today');
   });
+
+  it('concurrent purchases same user same day: exactly one succeeds', async () => {
+    const token = await registerAndVerify('purchase-race@test.local');
+    await prisma.user.updateMany({
+      where: { email: 'purchase-race@test.local' },
+      data: { balanceCents: 50_000n },
+    });
+
+    const { item: item1 } = await createActiveItem('RACE-SKU-1', 10n, 5);
+    const { item: item2 } = await createActiveItem('RACE-SKU-2', 10n, 5);
+
+    const inject = (itemId: string, key: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/v1/flashsale/purchase',
+        headers: { authorization: `Bearer ${token}`, 'idempotency-key': key },
+        payload: { sale_item_id: itemId },
+      });
+
+    const [r1, r2] = await Promise.all([
+      inject(item1.id, '77777777-7777-7777-7777-777777777771'),
+      inject(item2.id, '77777777-7777-7777-7777-777777777772'),
+    ]);
+
+    const statuses = [r1.statusCode, r2.statusCode].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const loser = r1.statusCode === 409 ? r1 : r2;
+    expect(loser.json().error.code).toBe('already_purchased_today');
+
+    const user = await prisma.user.findFirstOrThrow({ where: { email: 'purchase-race@test.local' } });
+    const purchaseCount = await prisma.purchase.count({ where: { userId: user.id } });
+    expect(purchaseCount).toBe(1);
+  });
 });

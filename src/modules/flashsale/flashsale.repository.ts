@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { AppHttpException } from '../../shared/http/app-http.exception';
 import { OutboxService } from '../../shared/outbox/outbox.service';
 import { TransactionService } from '../../shared/transaction/transaction.service';
@@ -77,15 +78,26 @@ export class FlashSaleRepository {
       await client.$executeRaw`UPDATE flash_sale_items SET sold = sold + 1 WHERE id = ${saleItemId}::uuid`;
       await client.$executeRaw`UPDATE users SET balance_cents = balance_cents - ${item.price_cents} WHERE id = ${userId}::uuid`;
 
-      const purchase = await client.purchase.create({
-        data: {
-          userId,
-          flashSaleItemId: saleItemId,
-          day: new Date(day),
-          priceCents: item.price_cents,
-          idempotencyKey,
-        },
-      });
+      let purchase: { id: string };
+      try {
+        purchase = await client.purchase.create({
+          data: {
+            userId,
+            flashSaleItemId: saleItemId,
+            day: new Date(day),
+            priceCents: item.price_cents,
+            idempotencyKey,
+          },
+        });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          // Two concurrent requests both passed the EXISTS pre-flight and raced to insert.
+          // The idempotency_key UNIQUE would only fire for a genuine replay (already handled
+          // by IdempotencyInterceptor), so any P2002 here is the daily-cap UNIQUE firing.
+          throw new AppHttpException('already_purchased_today', 'Already purchased today.', 409, { day });
+        }
+        throw err;
+      }
 
       await this.outbox.append(client, {
         type: 'purchase.completed',

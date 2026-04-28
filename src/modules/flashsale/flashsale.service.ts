@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
+import { FlashSaleRepository, PurchaseResult } from './flashsale.repository';
 
 export interface ActiveSaleItemDto {
   id: string;
@@ -13,7 +14,14 @@ export interface ActiveSaleItemDto {
 
 @Injectable()
 export class FlashSaleService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly repo: FlashSaleRepository,
+  ) {}
+
+  purchase(userId: string, saleItemId: string, idempotencyKey: string): Promise<PurchaseResult> {
+    return this.repo.purchaseTx(userId, saleItemId, idempotencyKey);
+  }
 
   async listActive(at: Date): Promise<ActiveSaleItemDto[]> {
     const items = await this.prisma.flashSaleItem.findMany({
