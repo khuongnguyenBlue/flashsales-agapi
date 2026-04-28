@@ -44,7 +44,7 @@ export class FlashSaleController {
       purchase_id: result.purchaseId,
       sale_item_id: result.saleItemId,
       price_cents: result.priceCents.toString(),
-      remaining_stock: result.remainingStock,
+      remaining_allocation: result.remainingAllocation,
     };
   }
 }

@@ -126,10 +126,10 @@ describe('POST /v1/flashsale/purchase (e2e)', () => {
       payload: { sale_item_id: item.id },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json<{ purchase_id: string; sale_item_id: string; price_cents: string; remaining_stock: number }>();
+    const body = res.json<{ purchase_id: string; sale_item_id: string; price_cents: string; remaining_allocation: number }>();
     expect(body.purchase_id).toBeDefined();
     expect(body.sale_item_id).toBe(item.id);
-    expect(body.remaining_stock).toBe(4);
+    expect(body.remaining_allocation).toBe(4);
   });
 
   it('replay with same Idempotency-Key → identical 200, exactly 1 purchase row', async () => {

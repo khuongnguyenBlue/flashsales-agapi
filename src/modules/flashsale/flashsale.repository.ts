@@ -9,7 +9,7 @@ export interface PurchaseResult {
   purchaseId: string;
   saleItemId: string;
   priceCents: bigint;
-  remainingStock: number;
+  remainingAllocation: number;
 }
 
 @Injectable()
@@ -109,7 +109,7 @@ export class FlashSaleRepository {
         purchaseId: purchase.id,
         saleItemId,
         priceCents: item.price_cents,
-        remainingStock: item.quantity - (item.sold + 1),
+        remainingAllocation: item.quantity - (item.sold + 1),
       };
     });
   }
