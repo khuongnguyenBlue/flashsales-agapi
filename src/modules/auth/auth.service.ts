@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OtpChannel, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { OtpCryptoService } from '../../shared/crypto/otp-crypto.service';
 import { AppHttpException } from '../../shared/http/app-http.exception';
 import { OutboxService } from '../../shared/outbox/outbox.service';
 import { TransactionService } from '../../shared/transaction/transaction.service';
@@ -25,6 +26,7 @@ export class AuthService implements OnModuleInit {
     private readonly token: TokenService,
     private readonly tx: TransactionService,
     private readonly outbox: OutboxService,
+    private readonly crypto: OtpCryptoService,
     config: ConfigService,
   ) {
     this.bcryptCost = Number(config.getOrThrow('BCRYPT_COST'));
@@ -78,8 +80,7 @@ export class AuthService implements OnModuleInit {
           otp_id: otpRecord.id,
           channel,
           identifier: identifier.normalized,
-          // plain_code is bearer-credential material — handler must never log it
-          plain_code: plainCode,
+          plain_code: this.crypto.encrypt(plainCode),
         },
         idempotencyKey: otpRecord.id,
       });
@@ -168,8 +169,7 @@ export class AuthService implements OnModuleInit {
           otp_id: otpRecord.id,
           channel,
           identifier: identifier.normalized,
-          // plain_code is bearer-credential material — handler must never log it
-          plain_code: plainCode,
+          plain_code: this.crypto.encrypt(plainCode),
         },
         idempotencyKey: otpRecord.id,
       });

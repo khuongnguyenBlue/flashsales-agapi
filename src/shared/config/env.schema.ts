@@ -16,6 +16,7 @@ export const envSchema = z.object({
 
   SERVER_TIMEZONE: z.string().min(1).default('Asia/Ho_Chi_Minh'),
   OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  OTP_ENCRYPTION_KEY: z.string().regex(/^[0-9a-f]{64}$/, 'must be 64 lowercase hex chars (32 bytes) — generate with: openssl rand -hex 32'),
 
   OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(200),
   OUTBOX_BATCH_SIZE: z.coerce.number().int().positive().default(50),

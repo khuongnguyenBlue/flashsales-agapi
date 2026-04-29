@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { OtpCryptoService } from '../../shared/crypto/otp-crypto.service';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { HandlerRegistry } from '../handler-registry';
 
@@ -16,6 +17,7 @@ export class OtpSendHandler implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly registry: HandlerRegistry,
+    private readonly crypto: OtpCryptoService,
   ) {}
 
   onModuleInit(): void {
@@ -35,9 +37,9 @@ export class OtpSendHandler implements OnModuleInit {
       return;
     }
 
-    // Mock delivery — real impl would call SMS/email provider with plain_code here.
-    // Never log plain_code; log only safe metadata.
-    void plain_code;
+    // Decrypt before handing to the provider. Never log the decrypted code.
+    const decryptedCode = this.crypto.decrypt(plain_code);
+    void decryptedCode; // real impl passes this to SMS/email provider
     this.logger.log({ otp_id, channel, identifier }, 'OTP send (mock)');
 
     await this.prisma.otpCode.update({ where: { id: otp_id }, data: { sent: true } });
