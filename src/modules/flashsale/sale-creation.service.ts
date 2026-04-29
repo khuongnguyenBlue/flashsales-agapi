@@ -51,6 +51,12 @@ export class SaleCreationService {
         idempotencyKey: sale.id,
       });
 
+      await this.outbox.append(client, {
+        type: 'flash_sale.settle',
+        payload: { flash_sale_id: sale.id },
+        visibleAt: sale.endsAt,
+      });
+
       return { sale, items };
     });
   }
