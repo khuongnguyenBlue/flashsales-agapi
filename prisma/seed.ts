@@ -5,48 +5,48 @@ const prisma = new PrismaClient();
 
 const BCRYPT_COST = 4; // low cost for seed speed
 const PASSWORD_HASH = bcrypt.hashSync('Test1234!', BCRYPT_COST);
-const BALANCE_CENTS = 10_000_000n;
+const BALANCE_CENTS = 50_000_000n;
 
 const PRODUCTS = [
-  { id: 'a0000000-0000-0000-0000-000000000001', sku: 'iphone-15', name: 'iPhone 15', stock: 1000n, priceCents: 25_000_000n },
-  { id: 'a0000000-0000-0000-0000-000000000002', sku: 'airpods-pro', name: 'AirPods Pro', stock: 1000n, priceCents: 6_000_000n },
-  { id: 'a0000000-0000-0000-0000-000000000003', sku: 'macbook-air', name: 'MacBook Air M2', stock: 1000n, priceCents: 30_000_000n },
-  { id: 'a0000000-0000-0000-0000-000000000004', sku: 'ipad-pro', name: 'iPad Pro 12.9"', stock: 1000n, priceCents: 20_000_000n },
-  { id: 'a0000000-0000-0000-0000-000000000005', sku: 'apple-watch', name: 'Apple Watch Series 9', stock: 1000n, priceCents: 10_000_000n },
+  { id: 'a0000000-0000-4000-8000-000000000001', sku: 'iphone-15', name: 'iPhone 15', stock: 1000n, priceCents: 25_000_000n },
+  { id: 'a0000000-0000-4000-8000-000000000002', sku: 'airpods-pro', name: 'AirPods Pro', stock: 1000n, priceCents: 6_000_000n },
+  { id: 'a0000000-0000-4000-8000-000000000003', sku: 'macbook-air', name: 'MacBook Air M2', stock: 1000n, priceCents: 30_000_000n },
+  { id: 'a0000000-0000-4000-8000-000000000004', sku: 'ipad-pro', name: 'iPad Pro 12.9"', stock: 1000n, priceCents: 20_000_000n },
+  { id: 'a0000000-0000-4000-8000-000000000005', sku: 'apple-watch', name: 'Apple Watch Series 9', stock: 1000n, priceCents: 10_000_000n },
 ];
 
 const now = Date.now();
 
 const SALES = [
   {
-    id: 'b0000000-0000-0000-0000-000000000001',
+    id: 'b0000000-0000-4000-8000-000000000001',
     name: 'Historical Sale',
     startsAt: new Date(now - 25 * 3_600_000),
     endsAt: new Date(now - 1 * 3_600_000),
     items: [
-      { id: 'c0000000-0000-0000-0000-000000000001', productId: PRODUCTS[0].id, quantity: 100, priceCents: 12_500_000n },
-      { id: 'c0000000-0000-0000-0000-000000000002', productId: PRODUCTS[1].id, quantity: 100, priceCents: 3_000_000n },
+      { id: 'c0000000-0000-4000-8000-000000000001', productId: PRODUCTS[0].id, quantity: 100, priceCents: 12_500_000n },
+      { id: 'c0000000-0000-4000-8000-000000000002', productId: PRODUCTS[1].id, quantity: 100, priceCents: 3_000_000n },
     ],
   },
   {
-    id: 'b0000000-0000-0000-0000-000000000002',
+    id: 'b0000000-0000-4000-8000-000000000002',
     name: 'Active Sale',
     startsAt: new Date(now - 5 * 60_000),
     endsAt: new Date(now + 3_600_000),
     items: [
-      { id: 'c0000000-0000-0000-0000-000000000003', productId: PRODUCTS[2].id, quantity: 100, priceCents: 15_000_000n },
-      { id: 'c0000000-0000-0000-0000-000000000004', productId: PRODUCTS[3].id, quantity: 100, priceCents: 10_000_000n },
-      { id: 'c0000000-0000-0000-0000-000000000005', productId: PRODUCTS[4].id, quantity: 100, priceCents: 5_000_000n },
+      { id: 'c0000000-0000-4000-8000-000000000003', productId: PRODUCTS[2].id, quantity: 100, priceCents: 15_000_000n },
+      { id: 'c0000000-0000-4000-8000-000000000004', productId: PRODUCTS[3].id, quantity: 100, priceCents: 10_000_000n },
+      { id: 'c0000000-0000-4000-8000-000000000005', productId: PRODUCTS[4].id, quantity: 100, priceCents: 5_000_000n },
     ],
   },
   {
-    id: 'b0000000-0000-0000-0000-000000000003',
+    id: 'b0000000-0000-4000-8000-000000000003',
     name: 'Future Sale',
     startsAt: new Date(now + 3_600_000),
     endsAt: new Date(now + 7_200_000),
     items: [
-      { id: 'c0000000-0000-0000-0000-000000000006', productId: PRODUCTS[0].id, quantity: 100, priceCents: 20_000_000n },
-      { id: 'c0000000-0000-0000-0000-000000000007', productId: PRODUCTS[1].id, quantity: 100, priceCents: 4_000_000n },
+      { id: 'c0000000-0000-4000-8000-000000000006', productId: PRODUCTS[0].id, quantity: 100, priceCents: 20_000_000n },
+      { id: 'c0000000-0000-4000-8000-000000000007', productId: PRODUCTS[1].id, quantity: 100, priceCents: 4_000_000n },
     ],
   },
 ];

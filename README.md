@@ -117,6 +117,26 @@ SALE_ITEM_ID=<id from step 2> k6 run load/purchase.js
 
 Thresholds: `http_req_failed < 0.001`, `p(99) < 200ms`.
 
+### Load test result:
+Scenario: 500 req/s sustained for 60s (ramping up 20s, down 10s) against `/v1/flashsale/purchase`.
+#### Thresholds
+```
+http_req_duration  ✓ p(99)<200    p(99)=6.64ms
+http_req_failed    ✓ rate<0.001   rate=0.00%
+```
+#### Total results
+```
+checks_succeeded : 100.00%  37,999 / 37,999
+✓ is 2xx or 409
+
+http_req_duration : avg=1.97ms  p(90)=2.05ms  p(95)=2.81ms  p(99)=6.64ms  max=123ms
+http_req_failed   : 0.00%   (0 / 37,999)
+http_reqs         : 37,999  @ 422 req/s
+
+data_received : 39 MB  (438 kB/s)
+data_sent     : 20 MB  (222 kB/s)
+```
+
 ---
 
 ## Architecture
