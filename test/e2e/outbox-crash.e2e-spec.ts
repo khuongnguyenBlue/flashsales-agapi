@@ -1,15 +1,16 @@
 /**
  * Spec §6.4 concurrency tests #5 and #6: outbox crash recovery.
  *
- * Tests use two Prisma clients on the same DB to simulate two separate
- * connections — one acting as the "crashed worker" (claims rows then
- * disconnects without committing), one acting as the recovery poller.
+ * Test #5 uses a raw pg.Client to simulate a worker crash:
+ *   BEGIN → SELECT FOR UPDATE SKIP LOCKED → ROLLBACK
+ * After ROLLBACK, Postgres releases the row locks synchronously.
+ * Using Prisma's $disconnect() is unreliable here because Prisma waits for
+ * the in-flight transaction to complete before closing connections, meaning
+ * the transaction commits rather than aborts.
  *
- * When the crasher disconnects, Postgres rolls back its open transaction
- * and releases the FOR UPDATE SKIP LOCKED locks, making the rows available
- * to the next poll.
+ * Test #6 proves PROCESSED rows are not re-delivered on subsequent ticks.
  */
-import { PrismaClient } from '@prisma/client';
+import { Client } from 'pg';
 import { Test } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../../src/shared/prisma/prisma.module';
@@ -39,14 +40,14 @@ async function buildPollerModule(databaseUrl: string, redisUrl: string) {
   return module;
 }
 
-async function insertPendingRows(prisma: PrismaService | PrismaClient, n: number): Promise<bigint[]> {
+async function insertPendingRows(prisma: PrismaService, n: number): Promise<bigint[]> {
   const rows = await Promise.all(
     Array.from({ length: n }, (_, i) =>
-      (prisma as PrismaClient).outbox.create({
+      prisma.outbox.create({
         data: {
           type: 'flash_sale.created',
           payload: { test: true, index: i },
-          idempotencyKey: `crash-test-${Date.now()}-${i}`,
+          idempotencyKey: null,
         },
         select: { id: true },
       }),
@@ -73,52 +74,37 @@ describe('OutboxPoller crash recovery (spec §6.4 tests #5, #6)', () => {
     const registry = module.get(HandlerRegistry);
     const poller = module.get(OutboxPoller);
 
-    // Insert 4 rows to be "lost" by the crash
     const rowIds = await insertPendingRows(prisma, 4);
+    const rowIdStrings = rowIds.map(String);
 
-    // Count calls to prove delivery
     let callCount = 0;
     registry.register('flash_sale.created', async () => { callCount++; });
 
-    // Simulate crash: a second client opens a tx, claims the rows, then disconnects
-    // without committing — Postgres rolls back and releases the locks.
-    const crasher = new PrismaClient({ datasourceUrl: infra.databaseUrl });
-    try {
-      // We intentionally start a transaction that we'll abort by disconnecting.
-      // The promise won't resolve normally — we race it with a disconnect.
-      const txPromise = crasher.$transaction(async (client) => {
-        // Claim all pending rows
-        await client.$queryRaw`
-          SELECT id FROM outbox
-          WHERE id = ANY(${rowIds}::bigint[])
-          FOR UPDATE SKIP LOCKED
-        `;
-        // Hold the lock while we verify SKIP LOCKED from another session
-        await new Promise((r) => setTimeout(r, 200));
-      });
+    // Simulate a crashed worker: open a raw pg connection, BEGIN a transaction,
+    // claim the rows with FOR UPDATE SKIP LOCKED, then ROLLBACK (crash).
+    // Using explicit ROLLBACK releases the locks synchronously — unlike
+    // Prisma's $disconnect() which may let the transaction commit first.
+    const crasher = new Client({ connectionString: infra.databaseUrl });
+    await crasher.connect();
+    await crasher.query('BEGIN');
+    await crasher.query(
+      `SELECT id FROM outbox WHERE id = ANY($1::bigint[]) FOR UPDATE SKIP LOCKED`,
+      [rowIdStrings],
+    );
 
-      // Give the tx a moment to acquire locks
-      await new Promise((r) => setTimeout(r, 50));
+    // Verify: another session sees 0 claimable rows (they are locked)
+    const lockedRows = await prisma.$queryRaw<Array<{ id: bigint }>>`
+      SELECT id FROM outbox
+      WHERE id = ANY(${rowIds}::bigint[]) AND status = 'PENDING'
+      FOR UPDATE SKIP LOCKED
+    `;
+    expect(lockedRows).toHaveLength(0);
 
-      // Verify: poller sees 0 claimable rows for these ids while crasher holds locks
-      const lockedRows = await prisma.$queryRaw<Array<{ id: bigint }>>`
-        SELECT id FROM outbox
-        WHERE id = ANY(${rowIds}::bigint[]) AND status = 'PENDING'
-        FOR UPDATE SKIP LOCKED
-      `;
-      expect(lockedRows).toHaveLength(0);
+    // Crash: roll back the transaction → Postgres releases all row locks immediately
+    await crasher.query('ROLLBACK');
+    await crasher.end();
 
-      // Crash the connection — aborts the open tx, releasing all locks
-      await crasher.$disconnect();
-      await txPromise.catch(() => {}); // suppress expected disconnect error
-    } catch {
-      await crasher.$disconnect();
-    }
-
-    // Give Postgres a moment to clean up the abandoned connection
-    await new Promise((r) => setTimeout(r, 100));
-
-    // Recovery poller picks up all 4 rows
+    // Recovery poller claims and processes all 4 rows
     await poller.tick();
 
     expect(callCount).toBe(4);
