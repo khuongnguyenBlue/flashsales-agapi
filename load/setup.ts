@@ -50,10 +50,17 @@ async function main() {
     if (i % 10 === 0) process.stdout.write(`  ${i}/100 users authenticated\n`);
   }
 
+  if (tokens.length < 50) {
+    console.error(`Only ${tokens.length}/100 tokens acquired — aborting. Check RATE_LIMIT_DISABLED=true in .env.`);
+    process.exit(1);
+  }
+
   const outPath = join(__dirname, 'tokens.json');
   writeFileSync(outPath, JSON.stringify(tokens, null, 2));
   console.log(`\nWrote ${tokens.length} tokens → ${outPath}`);
-  console.log(`\nRun the load test with:`);
+  console.log(`\nBefore running the load test, reset RATE_LIMIT_DISABLED=false in .env and restart:`);
+  console.log(`  docker compose up -d`);
+  console.log(`\nThen run:`);
   console.log(`  SALE_ITEM_ID=${saleItemId} k6 run load/purchase.js`);
 }
 

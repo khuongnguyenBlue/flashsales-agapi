@@ -11,6 +11,8 @@ const TOKENS = JSON.parse(open('./tokens.json'));
 const SALE_ITEM_ID = __ENV.SALE_ITEM_ID;
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
 
+if (!SALE_ITEM_ID) throw new Error('SALE_ITEM_ID env var is required — run load/setup.ts first');
+
 export const options = {
   scenarios: {
     purchase: {
