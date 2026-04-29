@@ -2,6 +2,7 @@ import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { PrismaModule } from '../../src/shared/prisma/prisma.module';
 import { PrismaService } from '../../src/shared/prisma/prisma.service';
+import { TransactionModule } from '../../src/shared/transaction/transaction.module';
 import { HandlerRegistry } from '../../src/worker/handler-registry';
 import { FlashSaleSettleHandler } from '../../src/worker/handlers/flash-sale-settle.handler';
 import { startInfra, type InfraHandles } from '../helpers/testcontainers';
@@ -19,6 +20,7 @@ describe('FlashSaleSettleHandler (e2e)', () => {
       imports: [
         ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }),
         PrismaModule,
+        TransactionModule,
       ],
       providers: [HandlerRegistry, FlashSaleSettleHandler],
     }).compile();

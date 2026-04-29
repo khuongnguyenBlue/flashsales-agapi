@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../shared/prisma/prisma.service';
+import { TransactionService } from '../../shared/transaction/transaction.service';
 import { HandlerRegistry } from '../handler-registry';
 
 interface FlashSaleSettlePayload {
@@ -12,7 +12,7 @@ export class FlashSaleSettleHandler implements OnModuleInit {
   private readonly logger = new Logger(FlashSaleSettleHandler.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly tx: TransactionService,
     private readonly registry: HandlerRegistry,
   ) {}
 
@@ -26,13 +26,13 @@ export class FlashSaleSettleHandler implements OnModuleInit {
   }
 
   private async settle(saleId: string): Promise<void> {
-    await this.prisma.$transaction(async (client) => {
+    const result = await this.tx.run(async (client) => {
       // Re-fetch with FOR UPDATE so concurrent workers don't double-settle.
       const rows = await client.$queryRaw<Array<{ settled_at: Date | null }>>(Prisma.sql`
         SELECT settled_at FROM flash_sales WHERE id = ${saleId}::uuid FOR UPDATE
       `);
 
-      if (!rows[0] || rows[0].settled_at !== null) return;
+      if (!rows[0] || rows[0].settled_at !== null) return null;
 
       const items = await client.$queryRaw<Array<{ product_id: string; unsold: number }>>(Prisma.sql`
         SELECT product_id, (quantity - sold) AS unsold
@@ -50,10 +50,13 @@ export class FlashSaleSettleHandler implements OnModuleInit {
         UPDATE flash_sales SET settled_at = now() WHERE id = ${saleId}::uuid
       `);
 
-      const totalReturned = items.reduce((sum, i) => sum + Number(i.unsold), 0);
-      this.logger.log(
-        `Settled flash_sale ${saleId}: returned ${totalReturned} units across ${items.length} item(s)`,
-      );
+      return { totalReturned: items.reduce((sum, i) => sum + Number(i.unsold), 0), itemCount: items.length };
     });
+
+    if (result) {
+      this.logger.log(
+        `Settled flash_sale ${saleId}: returned ${result.totalReturned} units across ${result.itemCount} item(s)`,
+      );
+    }
   }
 }
