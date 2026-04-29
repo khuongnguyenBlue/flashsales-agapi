@@ -1,6 +1,8 @@
 import { CanActivate, ExecutionContext, HttpStatus, Injectable, SetMetadata } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { FastifyRequest } from 'fastify';
+import { Env } from '../config/env.schema';
 import { AppHttpException } from './app-http.exception';
 import { RateLimiter } from './rate-limiter.service';
 import { normalizeIdentifier } from '../../modules/auth/identifier.util';
@@ -20,9 +22,12 @@ export class RateLimitGuard implements CanActivate {
   constructor(
     private readonly limiter: RateLimiter,
     private readonly reflector: Reflector,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (this.config.get('RATE_LIMIT_DISABLED', { infer: true })) return true;
+
     const configs = this.reflector.get<RateLimitConfig[]>(RATE_LIMIT_KEY, context.getHandler());
     if (!configs?.length) return true;
 

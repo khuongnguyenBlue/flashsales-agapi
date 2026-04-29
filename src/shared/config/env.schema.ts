@@ -22,6 +22,10 @@ export const envSchema = z.object({
   OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
 
   CORS_ORIGINS: z.string().default(''),
+  RATE_LIMIT_DISABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;
