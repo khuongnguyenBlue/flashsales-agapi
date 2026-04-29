@@ -11,7 +11,7 @@
 2. [Architecture Overview](#2-architecture-overview)
 3. [Component Structure](#3-component-structure)
 4. [Deployment Topology](#4-deployment-topology)
-5. [Key Data Flows](#5-key-data-flows)
+5. [Key Data Flows](#5-key-data-flows) — [5.1 Register + OTP](#51-register--otp-verify) · [5.2 Purchase](#52-flash-sale-purchase-critical-path) · [5.3 Outbox worker](#53-outbox-worker) · [5.4 Sale creation](#54-sale-creation-eager-reservation) · [5.5 Settlement](#55-sale-settlement)
 6. [Concurrency & Correctness](#6-concurrency--correctness)
 7. [Security Model](#7-security-model)
 8. [Data Model](#8-data-model)
@@ -30,6 +30,7 @@
 - **Flash sales** — time-windowed product promotions with strict inventory control and per-user daily purchase limits.
 - **Async event processing** — reliable, idempotent delivery of side-effects (OTP dispatch, downstream notifications) via a transactional outbox.
 - **Correctness under concurrency** — no overselling, no double-charging, no lost events, no duplicate side effects.
+- **Stock synchronization** — unsold inventory is returned to `products.stock` when a flash sale ends.
 - **≥ 500 TPS** on the purchase path with p99 < 200ms (demonstrated via k6 load test).
 
 ### Non-Goals (explicit)
@@ -39,7 +40,6 @@
 - Real payment integration — balance is pre-seeded; no external payment provider.
 - Fulfillment, shipping, refunds.
 - Multi-region / geo-replication.
-- Sale settlement — returning unsold inventory to `products.stock` when a sale ends is a future scheduler concern.
 
 ---
 
@@ -93,9 +93,9 @@ graph TB
         HTTP[Controllers · DTOs · Guards · Interceptors]
 
         subgraph Domain[Domain Modules]
-            Auth[auth<br/>register · login · logout · OTP]
+            Auth[auth<br/>register · verify-otp · resend-otp<br/>login · refresh · logout]
             FlashSale[flashsale<br/>list active · purchase]
-            Users[users<br/>profile · balance]
+            Users[users<br/>internal service]
         end
 
         subgraph Shared[Shared / Infra]
@@ -112,8 +112,8 @@ graph TB
     end
 
     subgraph Worker[Worker Entrypoint]
-        Poller[OutboxPoller<br/>claim · batch · retry]
-        Handlers[Event Handlers<br/>otp.send · purchase.completed · flash_sale.created]
+        Poller[OutboxPoller]
+        Handlers[Event Handlers<br/>otp.send · purchase.completed<br/>flash_sale.created · flash_sale.settle]
         Poller --> Handlers
     end
 
@@ -202,7 +202,8 @@ sequenceDiagram
     U->>API: POST /auth/verify-otp {identifier, code}
     API->>DB: SELECT otp WHERE user_id=$1 AND expires_at>now() AND used=false
     API->>API: bcrypt.compare(code, hashed_code)
-    API->>DB: UPDATE otp SET used=true; UPDATE user SET status=ACTIVE
+    API->>DB: UPDATE otp SET used=true
+    API->>DB: UPDATE user SET status=ACTIVE
     API-->>U: 200 {access_token, refresh_token}
 ```
 
@@ -301,12 +302,42 @@ sequenceDiagram
         Note right of DB: CHECK (stock >= 0) fails tx if over-allocating
         API->>DB: INSERT flash_sale_items (quantity, sold=0)
     end
-    API->>DB: INSERT outbox (type=flash_sale.created)
+    API->>DB: INSERT outbox (type=flash_sale.created, visible_at=now())
+    API->>DB: INSERT outbox (type=flash_sale.settle, visible_at=ends_at)
     API->>DB: COMMIT
 ```
 
-- Entire creation is one tx — sale + all reservations + outbox event commit together or not at all.
+- Entire creation is one tx — sale + all reservations + both outbox events commit together or not at all.
 - `CHECK (products.stock >= 0)` is the DB-level enforcer — concurrent admin requests cannot double-allocate.
+- The `flash_sale.settle` row is created with `visible_at = ends_at`, so the outbox poller delivers it at exactly the right time with no additional scheduling infrastructure.
+
+### 5.5 Sale settlement
+
+```mermaid
+sequenceDiagram
+    participant W as Worker (OutboxPoller)
+    participant DB as Postgres
+
+    Note over W,DB: At ends_at — poller finds visible_at <= now() row
+    W->>DB: claim flash_sale.settle outbox row (FOR UPDATE SKIP LOCKED)
+    W->>DB: BEGIN tx (statement_timeout=2s, lock_timeout=1s)
+    W->>DB: SELECT settled_at FROM flash_sales WHERE id=$1 FOR UPDATE
+    alt already settled
+        W->>DB: ROLLBACK (no-op — idempotent)
+    end
+    W->>DB: SELECT flash_sale_items WHERE quantity > sold
+    loop each unsold item
+        W->>DB: UPDATE products SET stock = stock + (quantity - sold)
+    end
+    W->>DB: UPDATE flash_sales SET settled_at = now()
+    W->>DB: COMMIT
+    W->>DB: UPDATE outbox SET status=PROCESSED
+```
+
+- Settlement fires at exactly `ends_at` — no polling gap, no second loop.
+- `SELECT flash_sales FOR UPDATE` is the idempotency guard: concurrent workers or outbox retries skip already-settled sales.
+- `WHERE quantity > sold` skips fully-sold items while still stamping `settled_at` on the sale row.
+- `TransactionService.run()` enforces the standard tx timeouts — a slow update across many items is killed by `statement_timeout` rather than holding locks indefinitely.
 
 ---
 
@@ -333,6 +364,7 @@ sequenceDiagram
 | Client retry after a timeout | Client-supplied `Idempotency-Key` → Redis response cache (24h) | `IdempotencyInterceptor` |
 | Worker crash mid-batch → event lost | Claim tx rolls back → row returns to PENDING; next worker poll reclaims it | `OutboxPoller` |
 | Duplicate side effect on retry | Idempotent handlers keyed on outbox `idempotency_key` | each handler |
+| Unsold units stranded in flash_sale_items after sale ends | `flash_sale.settle` outbox row (visible_at=ends_at) triggers `FlashSaleSettleHandler`; `FOR UPDATE` guard prevents double-return | `SaleCreationService` + `FlashSaleSettleHandler` |
 | Slow query holds locks, starves others | `statement_timeout`, `lock_timeout`, `idle_in_transaction_session_timeout` per tx | `TransactionService` |
 | Old JWT replayed after logout | Opaque refresh token invalidated in Redis on logout; short (15m) access TTL bounds exposure | `AuthService.logout` |
 | Brute force on credentials / OTP | Token-bucket rate limits per IP and per identifier in Redis; bcrypt; generic error messages | `RateLimitGuard` + auth |
@@ -463,6 +495,7 @@ erDiagram
         varchar name
         timestamptz starts_at
         timestamptz ends_at
+        timestamptz settled_at "nullable — set when unsold stock is returned"
     }
 
     flash_sale_items {
@@ -486,7 +519,7 @@ erDiagram
 
     outbox {
         bigserial id PK
-        varchar type "otp.send | purchase.completed | flash_sale.created"
+        varchar type "otp.send | purchase.completed | flash_sale.created | flash_sale.settle"
         jsonb payload
         varchar status "PENDING | PROCESSED | DEAD_LETTER"
         int attempts "default 0"
@@ -518,6 +551,7 @@ erDiagram
 | `UNIQUE(email)`, `UNIQUE(phone)` | `users` | Login by identifier |
 | `(user_id, channel, used, expires_at)` | `otp_codes` | Verify-OTP lookup |
 | `(starts_at, ends_at)` | `flash_sales` | "Active now" query |
+| `(ends_at, settled_at)` | `flash_sales` | Settlement lookup (unused now — outbox handles timing; kept for manual queries) |
 | `UNIQUE(user_id, day)` | `purchases` | Pre-flight daily-cap check + constraint |
 | `(status, visible_at) WHERE status='PENDING'` | `outbox` | Poller hot query (partial index — stays small) |
 
@@ -643,7 +677,7 @@ All endpoints under `/v1`. JSON bodies. Authentication via `Authorization: Beare
 
 **Pattern B (eager):** `products.stock` decremented once at sale creation; purchases mutate only `flash_sale_items.sold`. The purchase hot-path is one `UPDATE` lighter. The `products.stock` row is only ever contended by admin operations, not by buyers.
 
-Tradeoff: unsold units are "stranded" in `flash_sale_items` until an end-of-sale settlement process reclaims them. This is an acceptable deferred concern for MVP.
+Tradeoff: unsold units are "stranded" in `flash_sale_items` until end-of-sale settlement reclaims them. This is addressed by the `flash_sale.settle` outbox event (scheduled at `visible_at = ends_at` when the sale is created), which returns `quantity - sold` units back to `products.stock` via `FlashSaleSettleHandler`.
 
 ### Transactional outbox vs message broker
 
