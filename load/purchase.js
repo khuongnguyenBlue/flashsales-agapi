@@ -1,6 +1,11 @@
-import http from 'k6/http';
+import http, { expectedStatuses } from 'k6/http';
 import { check } from 'k6';
 import { uuidv4 } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
+
+// Tell k6 that 200 and 409 are both "expected" so neither counts as
+// http_req_failed. 409 means sold_out or already_purchased_today — a
+// valid business outcome, not a server error.
+http.setResponseCallback(expectedStatuses(200, 409));
 
 const TOKENS = JSON.parse(open('./tokens.json'));
 const SALE_ITEM_ID = __ENV.SALE_ITEM_ID;
