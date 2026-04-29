@@ -6,10 +6,11 @@ import { HandlerRegistry } from './worker/handler-registry';
 import { OutboxPoller } from './worker/outbox-poller';
 import { OtpSendHandler } from './worker/handlers/otp-send.handler';
 import { FlashSaleCreatedHandler } from './worker/handlers/flash-sale-created.handler';
+import { FlashSaleSettleHandler } from './worker/handlers/flash-sale-settle.handler';
 import { PurchaseCompletedHandler } from './worker/handlers/purchase-completed.handler';
 
 @Module({
   imports: [AppConfigModule, AppLoggerModule, PrismaModule],
-  providers: [HandlerRegistry, OutboxPoller, OtpSendHandler, FlashSaleCreatedHandler, PurchaseCompletedHandler],
+  providers: [HandlerRegistry, OutboxPoller, OtpSendHandler, FlashSaleCreatedHandler, FlashSaleSettleHandler, PurchaseCompletedHandler],
 })
 export class WorkerModule {}
