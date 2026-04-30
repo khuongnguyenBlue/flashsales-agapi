@@ -4,22 +4,20 @@
 **Deployment:** Docker Compose (single-region, horizontally scalable)
 
 ---
-
 ## Table of Contents
 
 1. [Goals & Non-Goals](#1-goals--non-goals)
 2. [Architecture Overview](#2-architecture-overview)
 3. [Component Structure](#3-component-structure)
-4. [Deployment Topology](#4-deployment-topology)
-5. [Key Data Flows](#5-key-data-flows) — [5.1 Register + OTP](#51-register--otp-verify) · [5.2 Purchase](#52-flash-sale-purchase-critical-path) · [5.3 Outbox worker](#53-outbox-worker) · [5.4 Sale creation](#54-sale-creation-eager-reservation) · [5.5 Settlement](#55-sale-settlement)
-6. [Concurrency & Correctness](#6-concurrency--correctness)
-7. [Security Model](#7-security-model)
-8. [Data Model](#8-data-model)
-9. [API Reference](#9-api-reference)
-10. [Reliability & Failure Modes](#10-reliability--failure-modes)
-11. [Tradeoffs](#11-tradeoffs)
+4. [Key Data Flows](#4-key-data-flows) — [4.1 Register + OTP](#41-register--otp-verify) · [4.2 Purchase](#42-flash-sale-purchase-critical-path) · [4.3 Outbox worker](#43-outbox-worker) · [4.4 Sale creation](#44-sale-creation-eager-reservation) · [4.5 Settlement](#45-sale-settlement)
+5. [Data Model](#5-data-model)
+6. [API Reference](#6-api-reference)
+7. [Concurrency & Correctness](#7-concurrency--correctness)
+8. [Security Model](#8-security-model)
+9. [Reliability & Failure Modes](#9-reliability--failure-modes)
+10. [Tradeoffs](#10-tradeoffs)
+11. [Deployment Topology](#11-deployment-topology)
 12. [Evolution Path](#12-evolution-path)
-
 ---
 
 ## 1. Goals & Non-Goals
@@ -133,51 +131,9 @@ This makes each domain module independently extractable into a microservice: onl
 
 ---
 
-## 4. Deployment Topology
+## 4. Key Data Flows
 
-```mermaid
-graph TB
-    C[Client]
-
-    subgraph Edge
-        LB[nginx / cloud LB]
-    end
-
-    subgraph API_Tier[API Tier — stateless, horizontally scaled]
-        A1[api-1] & A2[api-2] & AN[api-N]
-    end
-
-    subgraph Worker_Tier[Worker Tier]
-        W1[worker-1] & WM[worker-M]
-    end
-
-    subgraph Data
-        PG[(Postgres primary<br/>+ read replicas in prod)]
-        R[(Redis)]
-    end
-
-    C --> LB --> A1 & A2 & AN
-    A1 & A2 & AN --> PG & R
-    W1 & WM --> PG & R
-```
-
-**Docker Compose services (delivered):**
-
-| Service | Image | Purpose |
-|---|---|---|
-| `postgres` | `postgres:16-alpine` | Durable store + outbox |
-| `redis` | `redis:7-alpine` | Rate limit · OTP TTL · refresh blocklist |
-| `migrate` | app image | `prisma migrate deploy` — runs once, gates api/worker startup |
-| `api` | app image | NestJS HTTP service (scalable via `--scale api=N`) |
-| `worker` | app image | Outbox poller + handlers (scalable via `--scale worker=M`) |
-
-**Statelessness guarantees:** no in-process caches affecting correctness, no sticky sessions, no local filesystem state, logs to stdout. JWT verification is stateless; refresh state is in Redis.
-
----
-
-## 5. Key Data Flows
-
-### 5.1 Register + OTP verify
+### 4.1 Register + OTP verify
 
 ```mermaid
 sequenceDiagram
@@ -190,7 +146,7 @@ sequenceDiagram
     U->>API: POST /auth/register {identifier, password}
     API->>DB: BEGIN tx
     API->>DB: INSERT user (status=PENDING_VERIFICATION)
-    API->>DB: INSERT otp_code (hashed_code, expires_at=now+5m)
+    API->>DB: INSERT otp_code (encrypted_code, expires_at=now+5m)
     API->>DB: INSERT outbox (type=otp.send)
     API->>DB: COMMIT
     API-->>U: 201 {user_id}
@@ -201,17 +157,17 @@ sequenceDiagram
 
     U->>API: POST /auth/verify-otp {identifier, code}
     API->>DB: SELECT otp WHERE user_id=$1 AND expires_at>now() AND used=false
-    API->>API: bcrypt.compare(code, hashed_code)
+    API->>API: AES-GCM.decrypt(encrypted_code) == code
     API->>DB: UPDATE otp SET used=true
     API->>DB: UPDATE user SET status=ACTIVE
     API-->>U: 200 {access_token, refresh_token}
 ```
 
-- OTP is **bcrypt-hashed at rest** — a DB leak does not expose codes.
+- OTP is **AES-256-GCM encrypted at rest** — a DB leak does not expose codes; random IV per code prevents ciphertext correlation.
 - OTP delivery goes through the outbox → at-least-once, idempotent re-delivery.
 - User cannot log in until `status=ACTIVE`.
 
-### 5.2 Flash-sale purchase (critical path)
+### 4.2 Flash-sale purchase (critical path)
 
 ```mermaid
 sequenceDiagram
@@ -256,7 +212,7 @@ Critical design points:
 - **`UNIQUE(user_id, day)` is the race-free daily cap enforcer** — the pre-flight SELECT gives a clean 409; the constraint catches any race that slips through.
 - **`products.stock` is never touched here** — units were reserved at sale creation (eager reservation). The purchase path is one `UPDATE` lighter.
 
-### 5.3 Outbox worker
+### 4.3 Outbox worker
 
 ```mermaid
 sequenceDiagram
@@ -284,7 +240,7 @@ sequenceDiagram
 - `DEAD_LETTER` keeps the live queue flowing past poison messages; requires operator intervention to requeue.
 - All handlers are **idempotent by design** (keyed on `outbox.idempotency_key` or domain flags) — safe for at-least-once re-delivery.
 
-### 5.4 Sale creation (eager reservation)
+### 4.4 Sale creation (eager reservation)
 
 ```mermaid
 sequenceDiagram
@@ -311,7 +267,7 @@ sequenceDiagram
 - `CHECK (products.stock >= 0)` is the DB-level enforcer — concurrent admin requests cannot double-allocate.
 - The `flash_sale.settle` row is created with `visible_at = ends_at`, so the outbox poller delivers it at exactly the right time with no additional scheduling infrastructure.
 
-### 5.5 Sale settlement
+### 4.5 Sale settlement
 
 ```mermaid
 sequenceDiagram
@@ -341,112 +297,7 @@ sequenceDiagram
 
 ---
 
-## 6. Concurrency & Correctness
-
-### 6.1 Hard invariants
-
-1. **No overselling** — `sold <= quantity` for every flash-sale item at all times.
-2. **Daily purchase cap** — each user purchases at most one flash-sale item per calendar day.
-3. **Balance integrity** — a user's balance never goes negative.
-4. **Exactly-once result** — same `Idempotency-Key` always returns the same response; exactly one purchase row.
-5. **No lost events** — if the domain tx commits, the outbox event eventually processes.
-6. **No duplicate side effects** — each outbox event produces at most one observable side effect.
-7. **Inventory invariant** — `Σ flash_sale_items.quantity for active sales ≤ products.stock` at all times.
-
-### 6.2 Threat → mechanism mapping
-
-| Threat | Mechanism | Location |
-|---|---|---|
-| Two buyers claim the last unit simultaneously | `SELECT flash_sale_item FOR UPDATE` serializes buyers inside the tx | `FlashsaleRepository.purchaseTx` |
-| Same user buys twice on the same day | `UNIQUE(user_id, day)` on `purchases` (race-free); pre-flight SELECT for clean 409 | schema + service |
-| Concurrent debits drain balance below zero | `SELECT user FOR UPDATE` + assertion before UPDATE | purchase tx |
-| Sale over-allocates beyond physical stock | Eager reservation tx + `CHECK (products.stock >= 0)` — DB rejects the tx | `SaleCreationService` |
-| Client retry after a timeout | Client-supplied `Idempotency-Key` → Redis response cache (24h) | `IdempotencyInterceptor` |
-| Worker crash mid-batch → event lost | Claim tx rolls back → row returns to PENDING; next worker poll reclaims it | `OutboxPoller` |
-| Duplicate side effect on retry | Idempotent handlers keyed on outbox `idempotency_key` | each handler |
-| Unsold units stranded in flash_sale_items after sale ends | `flash_sale.settle` outbox row (visible_at=ends_at) triggers `FlashSaleSettleHandler`; `FOR UPDATE` guard prevents double-return | `SaleCreationService` + `FlashSaleSettleHandler` |
-| Slow query holds locks, starves others | `statement_timeout`, `lock_timeout`, `idle_in_transaction_session_timeout` per tx | `TransactionService` |
-| Old JWT replayed after logout | Opaque refresh token invalidated in Redis on logout; short (15m) access TTL bounds exposure | `AuthService.logout` |
-| Brute force on credentials / OTP | Token-bucket rate limits per IP and per identifier in Redis; bcrypt; generic error messages | `RateLimitGuard` + auth |
-
-### 6.3 What we deliberately do not use
-
-- **Distributed locks (Redlock, ZooKeeper)** — Postgres row locks are sufficient and have no split-brain failure modes.
-- **`SERIALIZABLE` isolation** — forces app-level retries on serialization failures. Explicit `FOR UPDATE` gives deterministic ordering with simpler reasoning.
-- **Sagas / 2PC** — all invariants live inside one DB; cross-service transactions are unnecessary.
-- **Optimistic concurrency (version columns + retry)** — adds retry latency on the hot-row pattern; pessimistic locks are simpler here.
-- **Message broker for MVP** — Postgres outbox meets our exactly-once + 500 TPS target; brokers are an evolution-path concern.
-
-### 6.4 Concurrency test coverage
-
-Every invariant has a corresponding e2e test (real Postgres + Redis via Testcontainers):
-
-| # | Invariant | Test |
-|---|---|---|
-| 1 | No oversell | 10 concurrent buyers for a `quantity=1` item → exactly 1 success, 9 `sold_out`, `sold=1` |
-| 2 | Daily cap | 1 user × 10 concurrent purchases of different items → 1 success, 9 `already_purchased_today` |
-| 3 | Balance | `402` on zero balance (balance unchanged); `200` after top-up (balance correctly debited) |
-| 4 | Idempotency | Same `Idempotency-Key` twice → identical response, exactly 1 purchase row |
-| 5 | No lost events | Rows locked in an aborted tx become reclaimable by the recovery poller |
-| 6 | No duplicates | PROCESSED rows skipped on subsequent ticks; handler fires exactly N times for N rows |
-| 7 | Convergence | Committed purchase rows === processed `purchase.completed` outbox events |
-| 8 | Inventory invariant | Concurrent last-unit allocation → exactly one succeeds, `stock=0` |
-| 9 | Stock invariant | `products.stock` unchanged before and after purchases (eager reservation) |
-
----
-
-## 7. Security Model
-
-### Authentication
-
-| Concern | Control |
-|---|---|
-| Password storage | bcrypt (cost 12) — never logged, never returned |
-| OTP storage | bcrypt-hashed at rest; 5-minute expiry; single-use flag |
-| Access token | JWT HS256 (RS256-ready — one-line swap in `JwtModule`), 15-minute TTL |
-| Refresh token | Opaque 256-bit random; stored as `sha256(token)` in Redis; logout = `DEL` → instant revocation |
-| User enumeration | Generic `401 invalid_credentials` for both "user not found" and "wrong password" |
-| Brute force | Token-bucket rate limits per IP and per identifier; constant-time bcrypt compare |
-
-### Authorization
-
-- All write and user-specific endpoints require `JwtAuthGuard` (global APP_GUARD).
-- Public endpoints are opted out via `@Public()` decorator — explicit allowlisting, not implicit bypass.
-- Ownership checks inside services: a user can only access rows where `user_id = req.user.id`.
-
-### Rate limits
-
-| Endpoint | Limit | Key |
-|---|---|---|
-| `POST /auth/register` | 5 / 10min | IP |
-| `POST /auth/login` | 10 / min / IP · 5 / min / identifier | IP + identifier |
-| `POST /auth/verify-otp` | 5 / 5min | identifier |
-| `POST /flashsale/purchase` | 10 / sec | user_id |
-
-Implementation: token bucket in Redis via atomic Lua script. On limit exceeded → `429` with `Retry-After`.
-
-### Transport & headers
-
-- HTTPS terminates at the reverse proxy; API listens HTTP internally.
-- Helmet middleware — CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, HSTS.
-- CORS — allowlist of origins from `CORS_ORIGINS` env var; default-deny.
-- No CSRF tokens needed — Bearer token in header, not cookie.
-
-### Input validation
-
-- Every controller uses NestJS DTOs with `class-validator` (`whitelist: true`, `forbidNonWhitelisted: true`). Unknown fields → 400.
-- Identifier normalization: email lowercased + trimmed; phone → E.164 via `libphonenumber-js`.
-- No SQL injection: Prisma parameterizes all queries; raw SQL spots use `$queryRaw` with parameter binding.
-
-### Secrets
-
-- All secrets via env vars, validated at startup by Zod schema — process exits on missing or malformed value.
-- `.env` is git-ignored; `.env.example` has placeholder values.
-- Pino redaction: `req.headers.authorization`, `req.body.password`, `req.body.code`, `req.body.refresh_token`.
-
----
-
-## 8. Data Model
+## 5. Data Model
 
 ### ERD
 
@@ -473,7 +324,7 @@ erDiagram
         uuid id PK
         uuid user_id FK
         varchar channel "EMAIL | PHONE"
-        varchar hashed_code "bcrypt"
+        varchar encrypted_code "AES-256-GCM"
         timestamptz expires_at
         bool used "default false"
         bool sent "handler idempotency flag"
@@ -562,7 +413,7 @@ erDiagram
 
 ---
 
-## 9. API Reference
+## 6. API Reference
 
 All endpoints under `/v1`. JSON bodies. Authentication via `Authorization: Bearer <access_token>`.
 
@@ -647,7 +498,112 @@ All endpoints under `/v1`. JSON bodies. Authentication via `Authorization: Beare
 
 ---
 
-## 10. Reliability & Failure Modes
+## 7. Concurrency & Correctness
+
+### 7.1 Hard invariants
+
+1. **No overselling** — `sold <= quantity` for every flash-sale item at all times.
+2. **Daily purchase cap** — each user purchases at most one flash-sale item per calendar day.
+3. **Balance integrity** — a user's balance never goes negative.
+4. **Exactly-once result** — same `Idempotency-Key` always returns the same response; exactly one purchase row.
+5. **No lost events** — if the domain tx commits, the outbox event eventually processes.
+6. **No duplicate side effects** — each outbox event produces at most one observable side effect.
+7. **Inventory invariant** — `Σ flash_sale_items.quantity for active sales ≤ products.stock` at all times.
+
+### 7.2 Threat → mechanism mapping
+
+| Threat | Mechanism | Location |
+|---|---|---|
+| Two buyers claim the last unit simultaneously | `SELECT flash_sale_item FOR UPDATE` serializes buyers inside the tx | `FlashsaleRepository.purchaseTx` |
+| Same user buys twice on the same day | `UNIQUE(user_id, day)` on `purchases` (race-free); pre-flight SELECT for clean 409 | schema + service |
+| Concurrent debits drain balance below zero | `SELECT user FOR UPDATE` + assertion before UPDATE | purchase tx |
+| Sale over-allocates beyond physical stock | Eager reservation tx + `CHECK (products.stock >= 0)` — DB rejects the tx | `SaleCreationService` |
+| Client retry after a timeout | Client-supplied `Idempotency-Key` → Redis response cache (24h) | `IdempotencyInterceptor` |
+| Worker crash mid-batch → event lost | Claim tx rolls back → row returns to PENDING; next worker poll reclaims it | `OutboxPoller` |
+| Duplicate side effect on retry | Idempotent handlers keyed on outbox `idempotency_key` | each handler |
+| Unsold units stranded in flash_sale_items after sale ends | `flash_sale.settle` outbox row (visible_at=ends_at) triggers `FlashSaleSettleHandler`; `FOR UPDATE` guard prevents double-return | `SaleCreationService` + `FlashSaleSettleHandler` |
+| Slow query holds locks, starves others | `statement_timeout`, `lock_timeout`, `idle_in_transaction_session_timeout` per tx | `TransactionService` |
+| Old JWT replayed after logout | Opaque refresh token invalidated in Redis on logout; short (15m) access TTL bounds exposure | `AuthService.logout` |
+| Brute force on credentials / OTP | Token-bucket rate limits per IP and per identifier in Redis; bcrypt (passwords); AES-GCM verify (OTP); generic error messages | `RateLimitGuard` + auth |
+
+### 7.3 What we deliberately do not use
+
+- **Distributed locks (Redlock, ZooKeeper)** — Postgres row locks are sufficient and have no split-brain failure modes.
+- **`SERIALIZABLE` isolation** — forces app-level retries on serialization failures. Explicit `FOR UPDATE` gives deterministic ordering with simpler reasoning.
+- **Sagas / 2PC** — all invariants live inside one DB; cross-service transactions are unnecessary.
+- **Optimistic concurrency (version columns + retry)** — adds retry latency on the hot-row pattern; pessimistic locks are simpler here.
+- **Message broker for MVP** — Postgres outbox meets our exactly-once + 500 TPS target; brokers are an evolution-path concern.
+
+### 7.4 Concurrency test coverage
+
+Every invariant has a corresponding e2e test (real Postgres + Redis via Testcontainers):
+
+| # | Invariant | Test |
+|---|---|---|
+| 1 | No oversell | 10 concurrent buyers for a `quantity=1` item → exactly 1 success, 9 `sold_out`, `sold=1` |
+| 2 | Daily cap | 1 user × 10 concurrent purchases of different items → 1 success, 9 `already_purchased_today` |
+| 3 | Balance | `402` on zero balance (balance unchanged); `200` after top-up (balance correctly debited) |
+| 4 | Idempotency | Same `Idempotency-Key` twice → identical response, exactly 1 purchase row |
+| 5 | No lost events | Rows locked in an aborted tx become reclaimable by the recovery poller |
+| 6 | No duplicates | PROCESSED rows skipped on subsequent ticks; handler fires exactly N times for N rows |
+| 7 | Convergence | Committed purchase rows === processed `purchase.completed` outbox events |
+| 8 | Inventory invariant | Concurrent last-unit allocation → exactly one succeeds, `stock=0` |
+| 9 | Stock invariant | `products.stock` unchanged before and after purchases (eager reservation) |
+
+---
+
+## 8. Security Model
+
+### Authentication
+
+| Concern | Control |
+|---|---|
+| Password storage | bcrypt (cost 12) — never logged, never returned |
+| OTP storage | AES-256-GCM encrypted at rest (random IV per code); 5-minute expiry; single-use flag; verify by decrypt+compare |
+| Access token | JWT HS256 (RS256-ready — one-line swap in `JwtModule`), 15-minute TTL |
+| Refresh token | Opaque 256-bit random; stored as `sha256(token)` in Redis; logout = `DEL` → instant revocation |
+| User enumeration | Generic `401 invalid_credentials` for both "user not found" and "wrong password" |
+| Brute force | Token-bucket rate limits per IP and per identifier; bcrypt (passwords); AES-GCM constant-time verify (OTP) |
+
+### Authorization
+
+- All write and user-specific endpoints require `JwtAuthGuard` (global APP_GUARD).
+- Public endpoints are opted out via `@Public()` decorator — explicit allowlisting, not implicit bypass.
+- Ownership checks inside services: a user can only access rows where `user_id = req.user.id`.
+
+### Rate limits
+
+| Endpoint | Limit | Key |
+|---|---|---|
+| `POST /auth/register` | 5 / 10min | IP |
+| `POST /auth/login` | 10 / min / IP · 5 / min / identifier | IP + identifier |
+| `POST /auth/verify-otp` | 5 / 5min | identifier |
+| `POST /flashsale/purchase` | 10 / sec | user_id |
+
+Implementation: token bucket in Redis via atomic Lua script. On limit exceeded → `429` with `Retry-After`.
+
+### Transport & headers
+
+- HTTPS terminates at the reverse proxy; API listens HTTP internally.
+- Helmet middleware — CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, HSTS.
+- CORS — allowlist of origins from `CORS_ORIGINS` env var; default-deny.
+- No CSRF tokens needed — Bearer token in header, not cookie.
+
+### Input validation
+
+- Every controller uses NestJS DTOs with `class-validator` (`whitelist: true`, `forbidNonWhitelisted: true`). Unknown fields → 400.
+- Identifier normalization: email lowercased + trimmed; phone → E.164 via `libphonenumber-js`.
+- No SQL injection: Prisma parameterizes all queries; raw SQL spots use `$queryRaw` with parameter binding.
+
+### Secrets
+
+- All secrets via env vars, validated at startup by Zod schema — process exits on missing or malformed value.
+- `.env` is git-ignored; `.env.example` has placeholder values.
+- Pino redaction: `req.headers.authorization`, `req.body.password`, `req.body.code`, `req.body.refresh_token`.
+
+---
+
+## 9. Reliability & Failure Modes
 
 | Failure | System behavior | Recovery |
 |---|---|---|
@@ -665,7 +621,7 @@ All endpoints under `/v1`. JSON bodies. Authentication via `Authorization: Beare
 
 ---
 
-## 11. Tradeoffs
+## 10. Tradeoffs
 
 ### Postgres FOR UPDATE vs SERIALIZABLE isolation
 
@@ -686,6 +642,48 @@ A Postgres outbox table avoids an external broker dependency, gives us atomic wr
 ### Opaque refresh tokens vs long-lived JWTs
 
 Long-lived JWTs are stateless but can't be revoked without waiting for expiry. Short-lived access (15m) + opaque refresh (7d, revocable via Redis `DEL`) bounds the exposure window while preserving instant revocation on logout or compromise.
+
+---
+
+## 11. Deployment Topology
+
+```mermaid
+graph TB
+    C[Client]
+
+    subgraph Edge
+        LB[nginx / cloud LB]
+    end
+
+    subgraph API_Tier[API Tier — stateless, horizontally scaled]
+        A1[api-1] & A2[api-2] & AN[api-N]
+    end
+
+    subgraph Worker_Tier[Worker Tier]
+        W1[worker-1] & WM[worker-M]
+    end
+
+    subgraph Data
+        PG[(Postgres primary<br/>+ read replicas in prod)]
+        R[(Redis)]
+    end
+
+    C --> LB --> A1 & A2 & AN
+    A1 & A2 & AN --> PG & R
+    W1 & WM --> PG & R
+```
+
+**Docker Compose services (delivered):**
+
+| Service | Image | Purpose |
+|---|---|---|
+| `postgres` | `postgres:16-alpine` | Durable store + outbox |
+| `redis` | `redis:7-alpine` | Rate limit · OTP TTL · refresh blocklist |
+| `migrate` | app image | `prisma migrate deploy` — runs once, gates api/worker startup |
+| `api` | app image | NestJS HTTP service (scalable via `--scale api=N`) |
+| `worker` | app image | Outbox poller + handlers (scalable via `--scale worker=M`) |
+
+**Statelessness guarantees:** no in-process caches affecting correctness, no sticky sessions, no local filesystem state, logs to stdout. JWT verification is stateless; refresh state is in Redis.
 
 ---
 

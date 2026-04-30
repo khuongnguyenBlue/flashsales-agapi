@@ -46,7 +46,7 @@ export class AuthService implements OnModuleInit {
       );
     }
 
-    const [passwordHash, { plainCode, hashedCode, expiresAt }] = await Promise.all([
+    const [passwordHash, { encryptedCode, expiresAt }] = await Promise.all([
       bcrypt.hash(dto.password, this.bcryptCost),
       this.otp.prepare(),
     ]);
@@ -69,7 +69,7 @@ export class AuthService implements OnModuleInit {
         throw err;
       }
 
-      const otpRecord = await this.otp.create(client, user.id, channel, hashedCode, expiresAt);
+      const otpRecord = await this.otp.create(client, user.id, channel, encryptedCode, expiresAt);
 
       await this.outbox.append(client, {
         type: 'otp.send',
@@ -78,8 +78,6 @@ export class AuthService implements OnModuleInit {
           otp_id: otpRecord.id,
           channel,
           identifier: identifier.normalized,
-          // plain_code is bearer-credential material — handler must never log it
-          plain_code: plainCode,
         },
         idempotencyKey: otpRecord.id,
       });
@@ -121,7 +119,7 @@ export class AuthService implements OnModuleInit {
       throw new AppHttpException('otp_expired', 'OTP has expired', HttpStatus.UNPROCESSABLE_ENTITY);
     }
 
-    const codeMatch = await bcrypt.compare(dto.code, otpRecord.hashedCode);
+    const codeMatch = this.otp.verify(dto.code, otpRecord.encryptedCode);
     if (!codeMatch) {
       await this.otp.incrementAttempts(otpRecord.id);
       throw new AppHttpException('otp_invalid', 'Invalid OTP code', HttpStatus.UNPROCESSABLE_ENTITY);
@@ -156,10 +154,10 @@ export class AuthService implements OnModuleInit {
     }
 
     const channel: OtpChannel = identifier.kind === 'EMAIL' ? 'EMAIL' : 'PHONE';
-    const { plainCode, hashedCode, expiresAt } = await this.otp.prepare();
+    const { encryptedCode, expiresAt } = await this.otp.prepare();
 
     await this.tx.run(async (client) => {
-      const otpRecord = await this.otp.create(client, user.id, channel, hashedCode, expiresAt);
+      const otpRecord = await this.otp.create(client, user.id, channel, encryptedCode, expiresAt);
 
       await this.outbox.append(client, {
         type: 'otp.send',
@@ -168,8 +166,6 @@ export class AuthService implements OnModuleInit {
           otp_id: otpRecord.id,
           channel,
           identifier: identifier.normalized,
-          // plain_code is bearer-credential material — handler must never log it
-          plain_code: plainCode,
         },
         idempotencyKey: otpRecord.id,
       });

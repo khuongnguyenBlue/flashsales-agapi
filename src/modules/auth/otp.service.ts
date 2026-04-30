@@ -1,40 +1,39 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OtpChannel, OtpCode, Prisma } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
+import { OtpCryptoService } from '../../shared/crypto/otp-crypto.service';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 
 const MAX_OTP_ATTEMPTS = 5;
 
 @Injectable()
 export class OtpService {
-  private readonly bcryptCost: number;
   private readonly ttlSeconds: number;
 
   constructor(
     config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly crypto: OtpCryptoService,
   ) {
-    this.bcryptCost = Number(config.getOrThrow('BCRYPT_COST'));
     this.ttlSeconds = Number(config.getOrThrow('OTP_TTL_SECONDS'));
   }
 
-  async prepare(): Promise<{ plainCode: string; hashedCode: string; expiresAt: Date }> {
+  async prepare(): Promise<{ encryptedCode: string; expiresAt: Date }> {
     const plainCode = crypto.randomInt(100000, 1000000).toString();
-    const hashedCode = await bcrypt.hash(plainCode, this.bcryptCost);
+    const encryptedCode = this.crypto.encrypt(plainCode);
     const expiresAt = new Date(Date.now() + this.ttlSeconds * 1000);
-    return { plainCode, hashedCode, expiresAt };
+    return { encryptedCode, expiresAt };
   }
 
   create(
     client: Prisma.TransactionClient,
     userId: string,
     channel: OtpChannel,
-    hashedCode: string,
+    encryptedCode: string,
     expiresAt: Date,
   ): Promise<OtpCode> {
-    return client.otpCode.create({ data: { userId, channel, hashedCode, expiresAt } });
+    return client.otpCode.create({ data: { userId, channel, encryptedCode, expiresAt } });
   }
 
   findValid(userId: string): Promise<OtpCode | null> {
@@ -42,6 +41,11 @@ export class OtpService {
       where: { userId, used: false, expiresAt: { gt: new Date() }, attempts: { lt: MAX_OTP_ATTEMPTS } },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  verify(submittedCode: string, encryptedCode: string): boolean {
+    const plainCode = this.crypto.decrypt(encryptedCode);
+    return plainCode === submittedCode;
   }
 
   markUsed(client: Prisma.TransactionClient, id: string): Promise<OtpCode> {

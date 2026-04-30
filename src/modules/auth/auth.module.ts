@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { CryptoModule } from '../../shared/crypto/crypto.module';
 import { OutboxModule } from '../../shared/outbox/outbox.module';
 import { TransactionModule } from '../../shared/transaction/transaction.module';
 import { UsersModule } from '../users/users.module';
@@ -16,6 +17,7 @@ import { TokenService } from './token.service';
     UsersModule,
     TransactionModule,
     OutboxModule,
+    CryptoModule,
     PassportModule,
     JwtModule.registerAsync({
       useFactory: (config: ConfigService) => ({

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AppConfigModule } from './shared/config/config.module';
 import { AppLoggerModule } from './shared/logger/logger.module';
+import { CryptoModule } from './shared/crypto/crypto.module';
 import { PrismaModule } from './shared/prisma/prisma.module';
 import { TransactionModule } from './shared/transaction/transaction.module';
 import { HandlerRegistry } from './worker/handler-registry';
@@ -11,7 +12,7 @@ import { FlashSaleSettleHandler } from './worker/handlers/flash-sale-settle.hand
 import { PurchaseCompletedHandler } from './worker/handlers/purchase-completed.handler';
 
 @Module({
-  imports: [AppConfigModule, AppLoggerModule, PrismaModule, TransactionModule],
+  imports: [AppConfigModule, AppLoggerModule, PrismaModule, CryptoModule, TransactionModule],
   providers: [HandlerRegistry, OutboxPoller, OtpSendHandler, FlashSaleCreatedHandler, FlashSaleSettleHandler, PurchaseCompletedHandler],
 })
 export class WorkerModule {}

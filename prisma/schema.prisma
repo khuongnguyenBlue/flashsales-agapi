@@ -48,7 +48,7 @@ model OtpCode {
   id         String     @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
   userId     String     @db.Uuid @map("user_id")
   channel    OtpChannel
-  hashedCode String     @map("hashed_code")
+  encryptedCode String  @map("encrypted_code")
   expiresAt  DateTime   @map("expires_at")
   used       Boolean    @default(false)
   sent       Boolean    @default(false)

@@ -20,6 +20,7 @@ describe('POST /v1/auth/register (e2e)', () => {
     process.env.REDIS_URL = infra.redisUrl;
     process.env.BCRYPT_COST = '4';
     process.env.OTP_TTL_SECONDS = '300';
+    process.env.OTP_ENCRYPTION_KEY = 'a'.repeat(64);
     process.env.JWT_PRIVATE_KEY_BASE64 = 'Zmxhc2hzYWxlLW12cC1zZWNyZXQtMzItY2hhcnMtbWluaW11bSE=';
     process.env.JWT_PUBLIC_KEY_BASE64 = 'Zmxhc2hzYWxlLW12cC1zZWNyZXQtMzItY2hhcnMtbWluaW11bSE=';
     process.env.JWT_ACCESS_TTL_SECONDS = '900';
