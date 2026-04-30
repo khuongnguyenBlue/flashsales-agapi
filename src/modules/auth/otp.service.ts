@@ -48,10 +48,6 @@ export class OtpService {
     return plainCode === submittedCode;
   }
 
-  getDecryptedCode(encryptedCode: string): string {
-    return this.crypto.decrypt(encryptedCode);
-  }
-
   markUsed(client: Prisma.TransactionClient, id: string): Promise<OtpCode> {
     return client.otpCode.update({ where: { id }, data: { used: true } });
   }
