@@ -77,16 +77,18 @@ model Product {
 }
 
 model FlashSale {
-  id        String   @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
-  name      String   @db.VarChar(255)
-  startsAt  DateTime @map("starts_at")
-  endsAt    DateTime @map("ends_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id         String    @id @db.Uuid @default(dbgenerated("gen_random_uuid()"))
+  name       String    @db.VarChar(255)
+  startsAt   DateTime  @map("starts_at")
+  endsAt     DateTime  @map("ends_at")
+  settledAt  DateTime? @map("settled_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
   items FlashSaleItem[]
 
   @@index([startsAt, endsAt], name: "idx_flash_sales_window")
+  @@index([endsAt, settledAt], name: "idx_flash_sales_settlement")
   @@map("flash_sales")
 }
 

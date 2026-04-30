@@ -11,6 +11,7 @@ export class OutboxService {
           type: input.type,
           payload: input.payload,
           ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+          ...(input.visibleAt ? { visibleAt: input.visibleAt } : {}),
         },
       })
       .then(() => undefined);
