@@ -7,7 +7,6 @@ interface OtpSendPayload {
   otp_id: string;
   channel: string;
   identifier: string;
-  plain_code: string;
 }
 
 @Injectable()
@@ -25,7 +24,7 @@ export class OtpSendHandler implements OnModuleInit {
   }
 
   async handle(payload: unknown): Promise<void> {
-    const { otp_id, channel, identifier, plain_code } = payload as OtpSendPayload;
+    const { otp_id, channel, identifier } = payload as OtpSendPayload;
 
     const otp = await this.prisma.otpCode.findUnique({ where: { id: otp_id } });
     if (!otp) {
@@ -37,8 +36,8 @@ export class OtpSendHandler implements OnModuleInit {
       return;
     }
 
-    // Decrypt before handing to the provider. Never log the decrypted code.
-    const decryptedCode = this.crypto.decrypt(plain_code);
+    // Decrypt from DB record. Never log the decrypted code.
+    const decryptedCode = this.crypto.decrypt(otp.encryptedCode);
     void decryptedCode; // real impl passes this to SMS/email provider
     this.logger.log({ otp_id, channel, identifier }, 'OTP send (mock)');
 

@@ -60,14 +60,14 @@ describe('OtpSendHandler (e2e)', () => {
       data: {
         userId: user.id,
         channel: 'EMAIL',
-        hashedCode: 'hash',
+        encryptedCode: crypto.encrypt('123456'),
         expiresAt: new Date(Date.now() + 300_000),
       },
     });
     await prisma.outbox.create({
       data: {
         type: 'otp.send',
-        payload: { otp_id: otp.id, channel: 'EMAIL', identifier: 'otp@test.com', plain_code: crypto.encrypt('123456') },
+        payload: { otp_id: otp.id, channel: 'EMAIL', identifier: 'otp@test.com' },
       },
     });
 
@@ -86,7 +86,7 @@ describe('OtpSendHandler (e2e)', () => {
       data: {
         userId: user.id,
         channel: 'EMAIL',
-        hashedCode: 'hash',
+        encryptedCode: crypto.encrypt('654321'),
         expiresAt: new Date(Date.now() + 300_000),
         sent: true, // already sent
       },
@@ -94,7 +94,7 @@ describe('OtpSendHandler (e2e)', () => {
     await prisma.outbox.create({
       data: {
         type: 'otp.send',
-        payload: { otp_id: otp.id, channel: 'EMAIL', identifier: 'otp2@test.com', plain_code: crypto.encrypt('654321') },
+        payload: { otp_id: otp.id, channel: 'EMAIL', identifier: 'otp2@test.com' },
       },
     });
 

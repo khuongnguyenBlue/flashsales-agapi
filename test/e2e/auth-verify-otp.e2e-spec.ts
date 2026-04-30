@@ -2,27 +2,27 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
-import * as bcrypt from 'bcrypt';
 import { AuthModule } from '../../src/modules/auth/auth.module';
+import { OtpCryptoService } from '../../src/shared/crypto/otp-crypto.service';
 import { AppErrorFilter } from '../../src/shared/http/error.filter';
 import { PrismaModule } from '../../src/shared/prisma/prisma.module';
 import { PrismaService } from '../../src/shared/prisma/prisma.service';
 import { RedisModule } from '../../src/shared/redis/redis.module';
 import { startInfra, type InfraHandles } from '../helpers/testcontainers';
 
-const BCRYPT_COST = 4;
-
 describe('POST /v1/auth/verify-otp (e2e)', () => {
   let infra: InfraHandles;
   let app: NestFastifyApplication;
   let prisma: PrismaService;
+  let crypto: OtpCryptoService;
 
   beforeAll(async () => {
     infra = await startInfra();
     process.env.DATABASE_URL = infra.databaseUrl;
     process.env.REDIS_URL = infra.redisUrl;
-    process.env.BCRYPT_COST = String(BCRYPT_COST);
+    process.env.BCRYPT_COST = '4';
     process.env.OTP_TTL_SECONDS = '300';
+    process.env.OTP_ENCRYPTION_KEY = 'a'.repeat(64);
     process.env.JWT_PRIVATE_KEY_BASE64 = 'Zmxhc2hzYWxlLW12cC1zZWNyZXQtMzItY2hhcnMtbWluaW11bSE=';
     process.env.JWT_PUBLIC_KEY_BASE64 = 'Zmxhc2hzYWxlLW12cC1zZWNyZXQtMzItY2hhcnMtbWluaW11bSE=';
     process.env.JWT_ACCESS_TTL_SECONDS = '900';
@@ -46,6 +46,7 @@ describe('POST /v1/auth/verify-otp (e2e)', () => {
     await app.getHttpAdapter().getInstance().ready();
 
     prisma = module.get(PrismaService);
+    crypto = module.get(OtpCryptoService);
     await prisma.onModuleInit();
   });
 
@@ -67,7 +68,7 @@ describe('POST /v1/auth/verify-otp (e2e)', () => {
       data: {
         userId: user.id,
         channel: 'EMAIL',
-        hashedCode: await bcrypt.hash(plainCode, BCRYPT_COST),
+        encryptedCode: crypto.encrypt(plainCode),
         expiresAt: new Date(Date.now() + 300_000),
       },
     });
@@ -99,7 +100,7 @@ describe('POST /v1/auth/verify-otp (e2e)', () => {
       data: {
         userId: user.id,
         channel: 'EMAIL',
-        hashedCode: await bcrypt.hash('123456', BCRYPT_COST),
+        encryptedCode: crypto.encrypt('123456'),
         expiresAt: new Date(Date.now() + 300_000),
       },
     });
@@ -122,7 +123,7 @@ describe('POST /v1/auth/verify-otp (e2e)', () => {
       data: {
         userId: user.id,
         channel: 'EMAIL',
-        hashedCode: await bcrypt.hash('123456', BCRYPT_COST),
+        encryptedCode: crypto.encrypt('123456'),
         expiresAt: new Date(Date.now() - 1000),
       },
     });
