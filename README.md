@@ -40,10 +40,10 @@ curl -s -X POST http://localhost:3000/v1/auth/register \
 
 ### 2. Get the OTP code
 
-The worker logs the mock-sent code:
+The worker decrypts and logs the code for local testing (mock delivery only):
 
 ```bash
-docker compose logs worker | grep plain_code
+docker compose logs worker | grep '"code"'
 ```
 
 ### 3. Verify OTP and get tokens

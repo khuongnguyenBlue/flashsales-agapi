@@ -190,7 +190,7 @@ sequenceDiagram
     U->>API: POST /auth/register {identifier, password}
     API->>DB: BEGIN tx
     API->>DB: INSERT user (status=PENDING_VERIFICATION)
-    API->>DB: INSERT otp_code (hashed_code, expires_at=now+5m)
+    API->>DB: INSERT otp_code (encrypted_code, expires_at=now+5m)
     API->>DB: INSERT outbox (type=otp.send)
     API->>DB: COMMIT
     API-->>U: 201 {user_id}
@@ -201,13 +201,13 @@ sequenceDiagram
 
     U->>API: POST /auth/verify-otp {identifier, code}
     API->>DB: SELECT otp WHERE user_id=$1 AND expires_at>now() AND used=false
-    API->>API: bcrypt.compare(code, hashed_code)
+    API->>API: AES-GCM.decrypt(encrypted_code) == code
     API->>DB: UPDATE otp SET used=true
     API->>DB: UPDATE user SET status=ACTIVE
     API-->>U: 200 {access_token, refresh_token}
 ```
 
-- OTP is **bcrypt-hashed at rest** — a DB leak does not expose codes.
+- OTP is **AES-256-GCM encrypted at rest** — a DB leak does not expose codes; random IV per code prevents ciphertext correlation.
 - OTP delivery goes through the outbox → at-least-once, idempotent re-delivery.
 - User cannot log in until `status=ACTIVE`.
 
@@ -367,7 +367,7 @@ sequenceDiagram
 | Unsold units stranded in flash_sale_items after sale ends | `flash_sale.settle` outbox row (visible_at=ends_at) triggers `FlashSaleSettleHandler`; `FOR UPDATE` guard prevents double-return | `SaleCreationService` + `FlashSaleSettleHandler` |
 | Slow query holds locks, starves others | `statement_timeout`, `lock_timeout`, `idle_in_transaction_session_timeout` per tx | `TransactionService` |
 | Old JWT replayed after logout | Opaque refresh token invalidated in Redis on logout; short (15m) access TTL bounds exposure | `AuthService.logout` |
-| Brute force on credentials / OTP | Token-bucket rate limits per IP and per identifier in Redis; bcrypt; generic error messages | `RateLimitGuard` + auth |
+| Brute force on credentials / OTP | Token-bucket rate limits per IP and per identifier in Redis; bcrypt (passwords); AES-GCM verify (OTP); generic error messages | `RateLimitGuard` + auth |
 
 ### 6.3 What we deliberately do not use
 
@@ -402,11 +402,11 @@ Every invariant has a corresponding e2e test (real Postgres + Redis via Testcont
 | Concern | Control |
 |---|---|
 | Password storage | bcrypt (cost 12) — never logged, never returned |
-| OTP storage | bcrypt-hashed at rest; 5-minute expiry; single-use flag |
+| OTP storage | AES-256-GCM encrypted at rest (random IV per code); 5-minute expiry; single-use flag; verify by decrypt+compare |
 | Access token | JWT HS256 (RS256-ready — one-line swap in `JwtModule`), 15-minute TTL |
 | Refresh token | Opaque 256-bit random; stored as `sha256(token)` in Redis; logout = `DEL` → instant revocation |
 | User enumeration | Generic `401 invalid_credentials` for both "user not found" and "wrong password" |
-| Brute force | Token-bucket rate limits per IP and per identifier; constant-time bcrypt compare |
+| Brute force | Token-bucket rate limits per IP and per identifier; bcrypt (passwords); AES-GCM constant-time verify (OTP) |
 
 ### Authorization
 
@@ -473,7 +473,7 @@ erDiagram
         uuid id PK
         uuid user_id FK
         varchar channel "EMAIL | PHONE"
-        varchar hashed_code "bcrypt"
+        varchar encrypted_code "AES-256-GCM"
         timestamptz expires_at
         bool used "default false"
         bool sent "handler idempotency flag"

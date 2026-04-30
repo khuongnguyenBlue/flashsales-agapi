@@ -36,10 +36,10 @@ export class OtpSendHandler implements OnModuleInit {
       return;
     }
 
-    // Decrypt from DB record. Never log the decrypted code.
+    // Mock delivery — decrypt and log so local dev can read the code.
+    // A real impl would pass decryptedCode to an SMS/email provider and never log it.
     const decryptedCode = this.crypto.decrypt(otp.encryptedCode);
-    void decryptedCode; // real impl passes this to SMS/email provider
-    this.logger.log({ otp_id, channel, identifier }, 'OTP send (mock)');
+    this.logger.log({ otp_id, channel, identifier, code: decryptedCode }, 'OTP send (mock)');
 
     await this.prisma.otpCode.update({ where: { id: otp_id }, data: { sent: true } });
   }
